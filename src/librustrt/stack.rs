@@ -57,7 +57,7 @@ pub const RED_ZONE: uint = 20 * 1024;
 extern fn stack_exhausted() {
     use core::intrinsics;
 
-    unsafe {
+    unsafe {/*
         // We're calling this function because the stack just ran out. We need
         // to call some other rust functions, but if we invoke the functions
         // right now it'll just trigger this handler being called again. In
@@ -101,7 +101,7 @@ extern fn stack_exhausted() {
         //  #2361 - possible implementation of not using landing pads
 
         ::stack_overflow::report();
-
+*/
         intrinsics::abort();
     }
 }
@@ -179,8 +179,8 @@ pub unsafe fn record_sp_limit(limit: uint) {
               movq $0, %gs:(%rsi)" :: "r"(limit) : "rsi" : "volatile")
     }
     #[cfg(all(target_arch = "x86_64", target_os = "linux"))] #[inline(always)]
-    unsafe fn target_record_sp_limit(limit: uint) {
-        asm!("movq $0, %fs:112" :: "r"(limit) :: "volatile")
+    unsafe fn target_record_sp_limit(_: uint) {
+//        asm!("movq $0, %fs:112" :: "r"(limit) :: "volatile")
     }
     #[cfg(all(target_arch = "x86_64", target_os = "windows"))] #[inline(always)]
     unsafe fn target_record_sp_limit(_: uint) {
@@ -256,9 +256,9 @@ pub unsafe fn get_sp_limit() -> uint {
     }
     #[cfg(all(target_arch = "x86_64", target_os = "linux"))] #[inline(always)]
     unsafe fn target_get_sp_limit() -> uint {
-        let limit;
-        asm!("movq %fs:112, $0" : "=r"(limit) ::: "volatile");
-        return limit;
+  //      let limit;
+//        asm!("movq %fs:112, $0" : "=r"(limit) ::: "volatile");
+        return 1024;//limit;
     }
     #[cfg(all(target_arch = "x86_64", target_os = "windows"))] #[inline(always)]
     unsafe fn target_get_sp_limit() -> uint {
