@@ -539,8 +539,9 @@ impl<'b, 'tcx> CrateContext<'b, 'tcx> {
     // So far the decision was to disable them in default builds
     // but it could be enabled (with patched LLVM)
     pub fn is_split_stack_supported(&self) -> bool {
-        let ref cfg = self.sess().targ_cfg;
-        (cfg.os != abi::OsiOS || cfg.arch != abi::Arm) && cfg.os != abi::OsWindows
+        false
+//        let ref cfg = self.sess().targ_cfg;
+//        (cfg.os != abi::OsiOS || cfg.arch != abi::Arm) && cfg.os != abi::OsWindows
     }
 
 
