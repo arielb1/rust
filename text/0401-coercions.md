@@ -321,18 +321,26 @@ following holds:
 
 * `e` has type `T` and `T` coerces to `U`;
 
-* `e` has type `*T` and `U` is `*U_0` (i.e., between any raw pointers);
+* `e` has type `*T`, `U` is `*U_0`, and either `U_0: Sized` or
+    unsize_kind(`T`) = unsize_kind(`U_0`);
 
-* `e` has type `*T` and `U` is `uint` , or vice versa;
+* `e` has type `*T` and `U` is `usize`, or vice versa, while `T: Sized`;
 
 * `e` has type `T` and `T` and `U` are any numeric types;
 
-* `e` is a C-like enum and `U` is any integer type, `bool`;
+* `e` is a C-like enum and `U` is an integer type or `bool`;
 
-* `e` has type `T` and `T == u8` and `U == char`;
+* `e` has type `u8` and `U` is `char`;
 
-* `e` has type `T` and `T == &[V, ..n]` or `T == &V` and `U == *const V`, and
-  similarly for the mutable variants to either `*const V` or `*mut V`.
+* `e` has type `&.T` and `U` is `*T`, and `e` is a mutable reference
+   if `U` is.
+
+* `e` has type `&.[T; n]` and `U` is `*T`, and `e` is a mutable
+   reference if `U` is.
+
+where `&.T` and `*T` are references of either mutability,
+and where unsize_kind(`T`) is the kind of the unsize info
+in `T` - a vtable or a length (or `()` if `T: Sized`).
 
 Casting is not transitive, that is, even if `e as U1 as U2` is a valid
 expression, `e as U2` is not necessarily so (in fact it will only be valid if
