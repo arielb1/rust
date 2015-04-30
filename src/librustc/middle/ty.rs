@@ -843,13 +843,11 @@ impl<'tcx> ctxt<'tcx> {
     }
 }
 
-// Flags that we track on types. These flags are propagated upwards
-// through the type during type construction, so that we can quickly
-// check whether the type has various kinds of types in it without
-// recursing over the type itself.
+// Flags that we track on types to increase performance.
 bitflags! {
     flags TypeFlags: u32 {
         const NO_TYPE_FLAGS     = 0,
+
         const HAS_PARAMS        = 1 << 0,
         const HAS_SELF          = 1 << 1,
         const HAS_TY_INFER      = 1 << 2,
@@ -861,6 +859,21 @@ bitflags! {
         const NEEDS_SUBST       = TypeFlags::HAS_PARAMS.bits |
                                   TypeFlags::HAS_SELF.bits |
                                   TypeFlags::HAS_REGIONS.bits,
+
+        // Flags describing nominal content. These flags are propagated
+        // upwards through the type during type construction, so that we can
+        // quickly check whether the type has various kinds of types in it
+        // without recursing over the type itself.
+        const NOMINAL_CONTENT_FLAGS = TypeFlags::HAS_PARAMS.bits |
+                                      TypeFlags::HAS_SELF.bits |
+                                      TypeFlags::HAS_TY_INFER.bits |
+                                      TypeFlags::HAS_RE_INFER.bits |
+                                      TypeFlags::HAS_RE_LATE_BOUND.bits |
+                                      TypeFlags::HAS_REGIONS.bits |
+                                      TypeFlags::HAS_TY_ERR.bits |
+                                      TypeFlags::HAS_PROJECTION.bits,
+
+        const IS_SIMD = 1 << 8,
     }
 }
 
@@ -2887,13 +2900,29 @@ impl<'tcx> ctxt<'tcx> {
 // and returns the box as cast to an unsafe ptr (see comments for Ty above).
 pub fn mk_t<'tcx>(cx: &ctxt<'tcx>, st: sty<'tcx>) -> Ty<'tcx> {
     let mut interner = cx.interner.borrow_mut();
-    intern_ty(&cx.arenas.type_, &mut *interner, st)
+    let mut extra_flags = TypeFlags::NO_TYPE_FLAGS;
+    if let ty_struct(did, _) = st {
+        if lookup_simd(cx, did) {
+            extra_flags = extra_flags | TypeFlags::IS_SIMD;
+        }
+    }
+    intern_ty_with_flags(&cx.arenas.type_, &mut *interner, st, extra_flags)
 }
+
 
 fn intern_ty<'tcx>(type_arena: &'tcx TypedArena<TyS<'tcx>>,
                    interner: &mut FnvHashMap<InternedTy<'tcx>, Ty<'tcx>>,
                    st: sty<'tcx>)
-                   -> Ty<'tcx>
+                 -> Ty<'tcx>
+{
+    intern_ty_with_flags(type_arena, interner, st, TypeFlags::NO_TYPE_FLAGS)
+}
+
+fn intern_ty_with_flags<'tcx>(type_arena: &'tcx TypedArena<TyS<'tcx>>,
+                              interner: &mut FnvHashMap<InternedTy<'tcx>, Ty<'tcx>>,
+                              st: sty<'tcx>,
+                              extra_flags: TypeFlags)
+                              -> Ty<'tcx>
 {
     match interner.get(&st) {
         Some(ty) => return *ty,
@@ -2903,9 +2932,11 @@ fn intern_ty<'tcx>(type_arena: &'tcx TypedArena<TyS<'tcx>>,
     let flags = FlagComputation::for_sty(&st);
 
     let ty = match () {
-        () => type_arena.alloc(TyS { sty: st,
-                                     flags: flags.flags,
-                                     region_depth: flags.depth, }),
+        () => type_arena.alloc(TyS {
+            sty: st,
+            flags: (flags.flags & TypeFlags::NOMINAL_CONTENT_FLAGS) | extra_flags,
+            region_depth: flags.depth,
+        }),
     };
 
     debug!("Interned type: {:?} Pointer: {:?}",
@@ -2924,14 +2955,14 @@ struct FlagComputation {
 }
 
 impl FlagComputation {
-    fn new() -> FlagComputation {
-        FlagComputation { flags: TypeFlags::NO_TYPE_FLAGS, depth: 0 }
-    }
-
     fn for_sty(st: &sty) -> FlagComputation {
         let mut result = FlagComputation::new();
         result.add_sty(st);
         result
+    }
+
+    fn new() -> FlagComputation {
+        FlagComputation { flags: TypeFlags::NO_TYPE_FLAGS, depth: 0 }
     }
 
     fn add_flags(&mut self, flags: TypeFlags) {
@@ -3479,11 +3510,8 @@ pub fn type_is_structural(ty: Ty) -> bool {
     }
 }
 
-pub fn type_is_simd(cx: &ctxt, ty: Ty) -> bool {
-    match ty.sty {
-        ty_struct(did, _) => lookup_simd(cx, did),
-        _ => false
-    }
+pub fn type_is_simd(_: &ctxt, ty: Ty) -> bool {
+    ty.flags.intersects(TypeFlags::IS_SIMD)
 }
 
 pub fn sequence_element_type<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> Ty<'tcx> {
