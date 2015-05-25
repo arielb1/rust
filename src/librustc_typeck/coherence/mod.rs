@@ -285,7 +285,8 @@ impl<'a, 'tcx> CoherenceChecker<'a, 'tcx> {
             }
             _ => {
                 self.crate_context.tcx.sess.span_bug(item.span,
-                                                     "can't convert a non-impl to an impl");
+                                                     "can't convert a non-impl \
+                                                      to an impl");
             }
         }
     }
