@@ -117,18 +117,53 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
                 self.check_variances_for_type_defn(item, ast_generics);
             }
             ast::ItemTrait(_, _, _, ref items) => {
-                let trait_predicates =
-                    ccx.tcx.lookup_predicates(local_def(item.id));
-                reject_non_type_param_bounds(ccx.tcx, item.span, &trait_predicates);
-                if ccx.tcx.trait_has_default_impl(local_def(item.id)) {
-                    if !items.is_empty() {
-                        span_err!(ccx.tcx.sess, item.span, E0380,
-                                  "traits with default impls (`e.g. unsafe impl \
-                                  Trait for ..`) must have no methods or associated items")
-                    }
-                }
+                self.check_trait(item.id, item.span, items);
             }
             _ => {}
+        }
+
+        fn check_trait(&mut self,
+                       id: NodeId,
+                       span: Span,
+                       items: &[ast::P<ast::TraitItem>]
+                       ) {
+            let ccx = self.ccx;
+            let trait_predicates = ccx.tcx.lookup_predicates(local_def(id));
+            let trait_def = ccx.tcx.lookup_trait_def(local_def(id));
+
+            reject_non_type_param_bounds(ccx.tcx, span, &trait_predicates);
+            if ccx.tcx.trait_has_default_impl(local_def(id)) {
+                if !items.is_empty() {
+                    span_err!(ccx.tcx.sess, item.span, E0380,
+                              "traits with default impls (`e.g. unsafe impl \
+                              Trait for ..`) must have no methods or associated items");
+                    return;
+                }
+            }
+
+            reject_non_type_param_bounds(ccx.tcx, span, &type_predicates);
+            let param_env = ccx.tcx.construct_parameter_environment(span,
+                                                                    &trait_def.generics,
+                                                                    &type_predicates,
+                                                                    id);
+            let tables = RefCell::new(ty::Tables::empty());
+            let inh = Inherited::new(ccx.tcx, &tables, param_env);
+            let fcx = blank_fn_ctxt(ccx, &inh, ty::FnDiverging, id);
+
+            for a_i in items {
+                match ccx.tcx.impl_or_trait_item(local_def(a_i.id)) {
+                    ConstTraitItem(ac) => {}
+                    MethodTraitItem(meth) => {
+                        //
+                        if let Some(m) = meth.provided_source {
+                        }
+                    }
+                    TypeTraitItem(at) => {}
+                }
+            }
+
+            fcx.select_all_obligations_or_error();
+            regionck::regionck_item(&fcx, id, &[]);
         }
     }
 
