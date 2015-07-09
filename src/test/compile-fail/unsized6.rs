@@ -14,13 +14,10 @@ trait T {}
 
 fn f1<X: ?Sized>(x: &X) {
     let _: X; // <-- this is OK, no bindings created, no initializer.
-    let _: (isize, (X, isize)); // same
     let y: X; //~ERROR the trait `core::marker::Sized` is not implemented
-    let y: (isize, (X, isize)); //~ERROR the trait `core::marker::Sized` is not implemented
 }
 fn f2<X: ?Sized + T>(x: &X) {
     let y: X; //~ERROR the trait `core::marker::Sized` is not implemented
-    let y: (isize, (X, isize)); //~ERROR the trait `core::marker::Sized` is not implemented
 }
 
 fn f3<X: ?Sized>(x1: Box<X>, x2: Box<X>, x3: Box<X>) {

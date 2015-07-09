@@ -538,6 +538,10 @@ impl<'cx,'tcx> BoundsChecker<'cx,'tcx> {
         ty.fold_with(self);
         self.binding_count -= 1;
     }
+
+    fn cause(&self, code: traits::ObligationCauseCode<'tcx>) -> traits::ObligationCause<'tcx> {
+        traits::ObligationCause::new(self.span, self.fcx.body_id, code)
+    }
 }
 
 impl<'cx,'tcx> TypeFolder<'tcx> for BoundsChecker<'cx,'tcx> {
@@ -574,7 +578,22 @@ impl<'cx,'tcx> TypeFolder<'tcx> for BoundsChecker<'cx,'tcx> {
             None => { }
         }
 
-        match t.sty{
+        match t.sty {
+            ty::TyArray(ety, _) | ty::TySlice(ety) => {
+                self.fcx.register_builtin_bound(self.fold_ty(ety),
+                                                ty::BoundSized,
+                                                self.cause(traits::MiscObligation));
+                t
+            }
+            ty::TyTuple(ref tys) => {
+                for ty in tys {
+                    self.fcx.register_builtin_bound(self.fold_ty(ty),
+                                                    ty::BoundSized,
+                                                    self.cause(traits::MiscObligation)
+                                                    );
+                }
+                t
+            }
             ty::TyStruct(type_id, substs) |
             ty::TyEnum(type_id, substs) => {
                 let type_predicates = self.fcx.tcx().lookup_predicates(type_id);
@@ -583,9 +602,7 @@ impl<'cx,'tcx> TypeFolder<'tcx> for BoundsChecker<'cx,'tcx> {
 
                 if self.binding_count == 0 {
                     self.fcx.add_obligations_for_parameters(
-                        traits::ObligationCause::new(self.span,
-                                                     self.fcx.body_id,
-                                                     traits::ItemObligation(type_id)),
+                        self.cause(traits::ItemObligation(type_id)),
                         &bounds);
                 } else {
                     // There are two circumstances in which we ignore
@@ -612,20 +629,17 @@ impl<'cx,'tcx> TypeFolder<'tcx> for BoundsChecker<'cx,'tcx> {
                     // that will require an RFC. -nmatsakis)
                     let bounds = filter_to_trait_obligations(bounds);
                     self.fcx.add_obligations_for_parameters(
-                        traits::ObligationCause::new(self.span,
-                                                     self.fcx.body_id,
-                                                     traits::ItemObligation(type_id)),
+                        self.cause(traits::ItemObligation(type_id)),
                         &bounds);
                 }
 
                 self.fold_substs(substs);
+                t
             }
             _ => {
-                super_fold_ty(self, t);
+                super_fold_ty(self, t)
             }
         }
-
-        t // we're not folding to produce a new type, so just return `t` here
     }
 }
 
