@@ -13,7 +13,7 @@ use check::regionck::{self, Rcx};
 use middle::infer;
 use middle::region;
 use middle::subst::{self, Subst};
-use middle::ty::{self, Ty};
+use middle::ty::{self, ADTDef, Ty};
 
 use syntax::ast;
 use syntax::codemap::{self, Span};
@@ -40,18 +40,18 @@ pub fn check_drop_impl(tcx: &ty::ctxt, drop_impl_did: ast::DefId) -> Result<(), 
                          ty: dtor_self_type } = tcx.lookup_item_type(drop_impl_did);
     let dtor_predicates = tcx.lookup_predicates(drop_impl_did);
     match dtor_self_type.sty {
-        ty::TyEnum(self_type_did, self_to_impl_substs) |
-        ty::TyStruct(self_type_did, self_to_impl_substs) => {
+        ty::TyEnum(self_type_def, self_to_impl_substs) |
+        ty::TyStruct(self_type_def, self_to_impl_substs) => {
             try!(ensure_drop_params_and_item_params_correspond(tcx,
                                                                drop_impl_did,
                                                                dtor_generics,
                                                                &dtor_self_type,
-                                                               self_type_did));
+                                                               self_type_def));
 
             ensure_drop_predicates_are_implied_by_item_defn(tcx,
                                                             drop_impl_did,
                                                             &dtor_predicates,
-                                                            self_type_did,
+                                                            self_type_def,
                                                             self_to_impl_substs)
         }
         _ => {
@@ -70,7 +70,7 @@ fn ensure_drop_params_and_item_params_correspond<'tcx>(
     drop_impl_did: ast::DefId,
     drop_impl_generics: &ty::Generics<'tcx>,
     drop_impl_ty: &ty::Ty<'tcx>,
-    self_type_did: ast::DefId) -> Result<(), ()>
+    self_type_def: &'tcx ADTDef<'tcx>) -> Result<(), ()>
 {
     // New strategy based on review suggestion from nikomatsakis.
     //
@@ -89,8 +89,7 @@ fn ensure_drop_params_and_item_params_correspond<'tcx>(
     //    succeeds, continue (i.e. with the predicate checks).
 
     let ty::TypeScheme { generics: ref named_type_generics,
-                         ty: named_type } =
-        tcx.lookup_item_type(self_type_did);
+                         ty: named_type } = self_type_def.type_scheme(tcx);
 
     let infcx = infer::new_infer_ctxt(tcx, &tcx.tables, None, false);
 
@@ -121,7 +120,7 @@ fn ensure_drop_params_and_item_params_correspond<'tcx>(
 
         span_err!(tcx.sess, drop_impl_span, E0366,
                   "Implementations of Drop cannot be specialized");
-        let item_span = tcx.map.span(self_type_did.node);
+        let item_span = tcx.map.span(self_type_def.did.node);
         tcx.sess.span_note(item_span,
                            "Use same sequence of generic type and region \
                             parameters that is on the struct/enum definition");
@@ -135,7 +134,7 @@ fn ensure_drop_predicates_are_implied_by_item_defn<'tcx>(
     tcx: &ty::ctxt<'tcx>,
     drop_impl_did: ast::DefId,
     dtor_predicates: &ty::GenericPredicates<'tcx>,
-    self_type_did: ast::DefId,
+    self_type_def: &'tcx ADTDef<'tcx>,
     self_to_impl_substs: &subst::Substs<'tcx>) -> Result<(), ()> {
 
     // Here is an example, analogous to that from
@@ -173,13 +172,13 @@ fn ensure_drop_predicates_are_implied_by_item_defn<'tcx>(
     // absent. So we report an error that the Drop impl injected a
     // predicate that is not present on the struct definition.
 
-    assert_eq!(self_type_did.krate, ast::LOCAL_CRATE);
+    assert_eq!(self_type_def.did.krate, ast::LOCAL_CRATE);
 
     let drop_impl_span = tcx.map.def_id_span(drop_impl_did, codemap::DUMMY_SP);
 
     // We can assume the predicates attached to struct/enum definition
     // hold.
-    let generic_assumptions = tcx.lookup_predicates(self_type_did);
+    let generic_assumptions = self_type_def.predicates(tcx);
 
     let assumptions_in_impl_context = generic_assumptions.instantiate(tcx, &self_to_impl_substs);
     assert!(assumptions_in_impl_context.predicates.is_empty_in(subst::SelfSpace));
@@ -210,7 +209,7 @@ fn ensure_drop_predicates_are_implied_by_item_defn<'tcx>(
         // repeated `contains` calls.
 
         if !assumptions_in_impl_context.contains(&predicate) {
-            let item_span = tcx.map.span(self_type_did.node);
+            let item_span = tcx.map.span(self_type_def.did.node);
             span_err!(tcx.sess, drop_impl_span, E0367,
                       "The requirement `{}` is added only by the Drop impl.", predicate);
             tcx.sess.span_note(item_span,
@@ -346,9 +345,6 @@ fn iterate_over_potentially_unsafe_regions_in_type<'a, 'tcx>(
 
     let origin = || infer::SubregionOrigin::SafeDestructor(span);
     let mut walker = ty_root.walk();
-    let opt_phantom_data_def_id = rcx.tcx().lang_items.phantom_data();
-
-    let destructor_for_type = rcx.tcx().destructor_for_type.borrow();
 
     let xref_depth_orig = xref_depth;
 
@@ -363,18 +359,10 @@ fn iterate_over_potentially_unsafe_regions_in_type<'a, 'tcx>(
         // with `T`, the type it represents as owned by the
         // surrounding context, before doing further analysis.
         let (typ, xref_depth) = match typ.sty {
-            ty::TyStruct(struct_did, substs) => {
-                if opt_phantom_data_def_id == Some(struct_did) {
-                    let item_type = rcx.tcx().lookup_item_type(struct_did);
-                    let tp_def = item_type.generics.types
-                        .opt_get(subst::TypeSpace, 0).unwrap();
-                    let new_typ = substs.type_for_def(tp_def);
-                    debug!("replacing phantom {:?} with {:?}",
-                           typ, new_typ);
-                    (new_typ, xref_depth_orig + 1)
-                } else {
-                    (typ, xref_depth_orig)
-                }
+            ty::TyStruct(def, substs) if def.is_phantom_data() => {
+                let new_typ = substs.types.get(subst::TypeSpace, 0);
+                debug!("replacing phantom {:?} with {:?}", typ, new_typ);
+                (*new_typ, xref_depth_orig + 1)
             }
 
             // Note: When TyBox is removed from compiler, the
@@ -392,12 +380,8 @@ fn iterate_over_potentially_unsafe_regions_in_type<'a, 'tcx>(
         };
 
         let dtor_kind = match typ.sty {
-            ty::TyEnum(def_id, _) |
-            ty::TyStruct(def_id, _) => {
-                match destructor_for_type.get(&def_id) {
-                    Some(def_id) => DtorKind::KnownDropMethod(*def_id),
-                    None => DtorKind::PureRecur,
-                }
+            ty::TyEnum(def, _) | ty::TyStruct(def, _) if def.has_dtor(rcx.tcx()) => {
+                DtorKind::KnownDropMethod(def)
             }
             ty::TyTrait(ref ty_trait) => {
                 DtorKind::Unknown(ty_trait.bounds.clone())
@@ -439,7 +423,7 @@ fn iterate_over_potentially_unsafe_regions_in_type<'a, 'tcx>(
         // simply skip the `type_must_outlive` call entirely (but
         // resume the recursive checking of the type-substructure).
 
-        if has_dtor_of_interest(rcx.tcx(), dtor_kind, typ, span) {
+        if has_dtor_of_interest(rcx.tcx(), dtor_kind, typ) {
             // If `typ` has a destructor, then we must ensure that all
             // borrowed data reachable via `typ` must outlive the
             // parent of `scope`. (It does not suffice for it to
@@ -463,7 +447,7 @@ fn iterate_over_potentially_unsafe_regions_in_type<'a, 'tcx>(
             // destructor.
 
             match typ.sty {
-                ty::TyStruct(struct_did, substs) => {
+                ty::TyStruct(struct_def, substs) => {
                     debug!("typ: {:?} is struct; traverse structure and not type-expression",
                            typ);
                     // Don't recurse; we extract type's substructure,
@@ -471,16 +455,16 @@ fn iterate_over_potentially_unsafe_regions_in_type<'a, 'tcx>(
                     walker.skip_current_subtree();
 
                     let fields =
-                        rcx.tcx().lookup_struct_fields(struct_did);
+                        rcx.tcx().lookup_struct_fields(struct_def.did);
                     for field in &fields {
-                        let field_type = rcx.tcx().lookup_field_type(struct_did,
+                        let field_type = rcx.tcx().lookup_field_type(struct_def.did,
                                                                      field.id,
                                                                      substs);
                         try!(iterate_over_potentially_unsafe_regions_in_type(
                             rcx,
                             breadcrumbs,
                             TypeContext::Struct {
-                                def_id: struct_did,
+                                def_id: struct_def.did,
                                 field: field.name,
                             },
                             field_type,
@@ -491,7 +475,7 @@ fn iterate_over_potentially_unsafe_regions_in_type<'a, 'tcx>(
                     }
                 }
 
-                ty::TyEnum(enum_did, substs) => {
+                ty::TyEnum(enum_def, substs) => {
                     debug!("typ: {:?} is enum; traverse structure and not type-expression",
                            typ);
                     // Don't recurse; we extract type's substructure,
@@ -499,14 +483,14 @@ fn iterate_over_potentially_unsafe_regions_in_type<'a, 'tcx>(
                     walker.skip_current_subtree();
 
                     let all_variant_info =
-                        rcx.tcx().substd_enum_variants(enum_did, substs);
+                        rcx.tcx().substd_enum_variants(enum_def.did, substs);
                     for variant_info in &all_variant_info {
                         for (i, arg_type) in variant_info.args.iter().enumerate() {
                             try!(iterate_over_potentially_unsafe_regions_in_type(
                                 rcx,
                                 breadcrumbs,
                                 TypeContext::EnumVariant {
-                                    def_id: enum_did,
+                                    def_id: enum_def.did,
                                     variant: variant_info.name,
                                     arg_index: i,
                                 },
@@ -542,8 +526,8 @@ fn iterate_over_potentially_unsafe_regions_in_type<'a, 'tcx>(
 }
 
 enum DtorKind<'tcx> {
-    // Type has an associated drop method with this def id
-    KnownDropMethod(ast::DefId),
+    // Type is an ADT with this dtor
+    KnownDropMethod(&'tcx ADTDef<'tcx>),
 
     // Type has no destructor (or its dtor is known to be pure
     // with respect to lifetimes), though its *substructure*
@@ -556,9 +540,8 @@ enum DtorKind<'tcx> {
 }
 
 fn has_dtor_of_interest<'tcx>(tcx: &ty::ctxt<'tcx>,
-                              dtor_kind: DtorKind,
-                              typ: ty::Ty<'tcx>,
-                              span: Span) -> bool {
+                              dtor_kind: DtorKind<'tcx>,
+                              typ: ty::Ty<'tcx>) -> bool {
     let has_dtor_of_interest: bool;
 
     match dtor_kind {
@@ -586,88 +569,11 @@ fn has_dtor_of_interest<'tcx>(tcx: &ty::ctxt<'tcx>,
                 }
             }
         }
-        DtorKind::KnownDropMethod(dtor_method_did) => {
-            let impl_did = tcx.impl_of_method(dtor_method_did)
-                .unwrap_or_else(|| {
-                    tcx.sess.span_bug(
-                        span, "no Drop impl found for drop method")
-                });
-
-            let dtor_typescheme = tcx.lookup_item_type(impl_did);
-            let dtor_generics = dtor_typescheme.generics;
-
-            let mut has_pred_of_interest = false;
-
-            let mut seen_items = Vec::new();
-            let mut items_to_inspect = vec![impl_did];
-            'items: while let Some(item_def_id) = items_to_inspect.pop() {
-                if seen_items.contains(&item_def_id) {
-                    continue;
-                }
-
-                for pred in tcx.lookup_predicates(item_def_id).predicates {
-                    let result = match pred {
-                        ty::Predicate::Equate(..) |
-                        ty::Predicate::RegionOutlives(..) |
-                        ty::Predicate::TypeOutlives(..) |
-                        ty::Predicate::Projection(..) => {
-                            // For now, assume all these where-clauses
-                            // may give drop implementation capabilty
-                            // to access borrowed data.
-                            true
-                        }
-
-                        ty::Predicate::Trait(ty::Binder(ref t_pred)) => {
-                            let def_id = t_pred.trait_ref.def_id;
-                            if tcx.trait_items(def_id).len() != 0 {
-                                // If trait has items, assume it adds
-                                // capability to access borrowed data.
-                                true
-                            } else {
-                                // Trait without items is itself
-                                // uninteresting from POV of dropck.
-                                //
-                                // However, may have parent w/ items;
-                                // so schedule checking of predicates,
-                                items_to_inspect.push(def_id);
-                                // and say "no capability found" for now.
-                                false
-                            }
-                        }
-                    };
-
-                    if result {
-                        has_pred_of_interest = true;
-                        debug!("typ: {:?} has interesting dtor due to generic preds, e.g. {:?}",
-                               typ, pred);
-                        break 'items;
-                    }
-                }
-
-                seen_items.push(item_def_id);
-            }
-
-            // In `impl<'a> Drop ...`, we automatically assume
-            // `'a` is meaningful and thus represents a bound
-            // through which we could reach borrowed data.
-            //
-            // FIXME (pnkfelix): In the future it would be good to
-            // extend the language to allow the user to express,
-            // in the impl signature, that a lifetime is not
-            // actually used (something like `where 'a: ?Live`).
-            let has_region_param_of_interest =
-                dtor_generics.has_region_params(subst::TypeSpace);
-
-            has_dtor_of_interest =
-                has_region_param_of_interest ||
-                has_pred_of_interest;
-
+        DtorKind::KnownDropMethod(adt) => {
+            has_dtor_of_interest = adt.is_dtorck(tcx);
             if has_dtor_of_interest {
-                debug!("typ: {:?} has interesting dtor, due to \
-                        region params: {} or pred: {}",
-                       typ,
-                       has_region_param_of_interest,
-                       has_pred_of_interest);
+                debug!("typ: {:?} has interesting dtor",
+                       typ);
             } else {
                 debug!("typ: {:?} has dtor, but it is uninteresting",
                        typ);
