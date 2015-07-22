@@ -1044,7 +1044,7 @@ fn convert_item(ccx: &CrateCtxt, it: &ast::Item) {
                                        it.id)
             }
         },
-        ast::ItemStruct(ref struct_def, _) => {
+        ast::ItemStruct(ref struct_def, ref generics) => {
             // Write the class type.
             let (scheme, predicates) = convert_typed_item(ccx, it);
             write_ty_to_tcx(tcx, it.id, scheme.ty);
@@ -1466,18 +1466,17 @@ fn compute_type_scheme_of_item<'a,'tcx>(ccx: &CrateCtxt<'a,'tcx>,
             let ty = ccx.icx(generics).to_ty(&ExplicitRscope, &**t);
             ty::TypeScheme { ty: ty, generics: ty_generics }
         }
-        ast::ItemEnum(_, ref generics) => {
-            // Create a new generic polytype.
+        ast::ItemEnum(ref ei, ref generics) => {
             let ty_generics = ty_generics_for_type_or_impl(ccx, generics);
             let substs = mk_item_substs(ccx, &ty_generics);
-            let def = tcx.intern_adt_def(local_def(it.id), ty::ADTKind::Enum);
+            let def = convert_enum_def(tcx, it, ei);
             let t = tcx.mk_enum(def, tcx.mk_substs(substs));
             ty::TypeScheme { ty: t, generics: ty_generics }
         }
-        ast::ItemStruct(_, ref generics) => {
+        ast::ItemStruct(ref si, ref generics) => {
             let ty_generics = ty_generics_for_type_or_impl(ccx, generics);
             let substs = mk_item_substs(ccx, &ty_generics);
-            let def = tcx.intern_adt_def(local_def(it.id), ty::ADTKind::Struct);
+            let def = convert_struct_def(tcx, it, si);
             let t = tcx.mk_struct(def, tcx.mk_substs(substs));
             ty::TypeScheme { ty: t, generics: ty_generics }
         }
@@ -1495,6 +1494,51 @@ fn compute_type_scheme_of_item<'a,'tcx>(ccx: &CrateCtxt<'a,'tcx>,
                          it.node));
         }
     }
+}
+
+fn convert_struct_variant<'tcx>(did: ast::DefId,
+                                name: ast::Name,
+                                disr_val: ty::Disr,
+                                def: &ast::StructDef) -> ty::VariantDef_<'tcx, 'tcx> {
+    let fields = def.fields.iter().map(|f| {
+        let fid = local_def(f.node.id);
+        match f.node.kind {
+            ast::NamedField(ident, vis) => ty::FieldDef_::new(fid, ident.name, vis),
+            ast::UnnamedField(vis) => {
+                ty::FieldDef_::new(fid, special_idents::unnamed_field.name, vis)
+            }
+        }
+    }).collect();
+    ty::VariantDef_ {
+        did: did,
+        name: name,
+        disr_val: disr_val,
+        fields: fields
+    }
+}
+
+fn convert_struct_def<'tcx>(tcx: &ty::ctxt<'tcx>,
+                            it: &ast::Item,
+                            def: &ast::StructDef)
+                            -> &'tcx ty::ADTDef_<'tcx, 'tcx>
+{
+
+    let did = local_def(it.id);
+    let variant = convert_struct_variant(did, it.ident.name, 0, def);
+    tcx.intern_adt_def(
+        did,
+        ty::ADTKind::Struct,
+        vec![convert_struct_variant(did, it.ident.name, 0, def)]
+    )
+}
+
+fn convert_enum_def<'tcx>(tcx: &ty::ctxt<'tcx>,
+                          it: &ast::Item,
+                          def: &ast::EnumDef)
+                          -> &'tcx ty::ADTDef_<'tcx, 'tcx>
+{
+    let variants = vec![];
+    tcx.intern_adt_def(local_def(it.id), ty::ADTKind::Enum, variants)
 }
 
 fn convert_typed_item<'a, 'tcx>(ccx: &CrateCtxt<'a, 'tcx>,

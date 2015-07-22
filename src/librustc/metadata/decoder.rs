@@ -108,7 +108,7 @@ fn lookup_item<'a>(item_id: ast::NodeId, data: &'a [u8]) -> rbml::Doc<'a> {
     find_item(item_id, items)
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum Family {
     ImmStatic,             // c
     MutStatic,             // b
@@ -409,12 +409,91 @@ pub fn get_trait_def<'tcx>(cdata: Cmd,
     }
 }
 
-pub fn get_adt_def<'tcx>(cdata: Cmd,
+pub fn get_adt_def<'tcx>(intr: &IdentInterner,
+                         cdata: Cmd,
                          item_id: ast::NodeId,
-                         tcx: &ty::ctxt<'tcx>) -> &'tcx ty::ADTDef<'tcx>
+                         tcx: &ty::ctxt<'tcx>) -> &'tcx ty::ADTDef_<'tcx, 'tcx>
 {
-    tcx.intern_adt_def(ast::DefId { krate: cdata.cnum, node: item_id },
-                       ty::ADTKind::Enum)
+    fn get_enum_variants<'tcx>(intr: &IdentInterner,
+                               cdata: Cmd,
+                               doc: rbml::Doc,
+                               tcx: &ty::ctxt<'tcx>) -> Vec<ty::VariantDef_<'tcx, 'tcx>> {
+        let mut disr_val = 0;
+        reader::tagged_docs(doc, tag_items_data_item_variant).map(|p| {
+            let did = translated_def_id(cdata, p);
+            let item = lookup_item(did.node, cdata.data());
+
+            if let Some(disr) = variant_disr_val(item) {
+                disr_val = disr;
+            }
+            let disr = disr_val;
+            disr_val = disr_val.wrapping_add(1);
+
+            ty::VariantDef_ {
+                did: did,
+                name: item_name(intr, item),
+                fields: get_variant_fields(intr, cdata, item, tcx),
+                disr_val: disr
+            }
+        }).collect()
+    }
+    fn get_variant_fields<'tcx>(intr: &IdentInterner,
+                                cdata: Cmd,
+                                doc: rbml::Doc,
+                                tcx: &ty::ctxt<'tcx>) -> Vec<ty::FieldDef_<'tcx, 'tcx>> {
+        reader::tagged_docs(doc, tag_item_field).map(|f| {
+            let ff = item_family(f);
+            match ff {
+                PublicField | InheritedField => {},
+                _ => tcx.sess.bug(&format!("expected field, found {:?}", ff))
+            };
+            ty::FieldDef_::new(item_def_id(f, cdata),
+                               item_name(intr, f),
+                               struct_field_family_to_visibility(ff))
+        }).chain(reader::tagged_docs(doc, tag_item_unnamed_field).map(|f| {
+            let ff = item_family(f);
+            ty::FieldDef_::new(item_def_id(f, cdata),
+                               special_idents::unnamed_field.name,
+                               struct_field_family_to_visibility(ff))
+        })).collect()
+    }
+    fn get_struct_variant<'tcx>(intr: &IdentInterner,
+                                cdata: Cmd,
+                                doc: rbml::Doc,
+                                tcx: &ty::ctxt<'tcx>) -> ty::VariantDef_<'tcx, 'tcx> {
+        let did = translated_def_id(cdata, doc);
+        ty::VariantDef_ {
+            did: did,
+            name: item_name(intr, doc),
+            fields: get_variant_fields(intr, cdata, doc, tcx),
+            disr_val: 0
+        }
+    }
+    fn fill_field_types<'tcx>(cdata: Cmd,
+                              adt: &'tcx ty::ADTDef_<'tcx, 'tcx>,
+                              tcx: &ty::ctxt<'tcx>) {
+    }
+
+    let doc = lookup_item(item_id, cdata.data());
+
+    let (kind, variants) = match item_family(doc) {
+        Enum => (ty::ADTKind::Enum,
+                 get_enum_variants(intr, cdata, doc, tcx)),
+        Struct => (ty::ADTKind::Struct,
+                   vec![get_struct_variant(intr, cdata, doc, tcx)]),
+        _ => tcx.sess.bug("get_adt_def called on a non-ADT")
+    };
+
+    let adt = tcx.intern_adt_def(ast::DefId {
+        krate: cdata.cnum,
+        node: item_id
+    }, kind, variants);
+
+    // this needs to be done *after* the variant is interned,
+    // to support recursive structures
+    fill_field_types(cdata, adt, tcx);
+
+    adt
 }
 
 pub fn get_predicates<'tcx>(cdata: Cmd,

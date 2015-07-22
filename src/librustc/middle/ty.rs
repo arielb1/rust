@@ -853,7 +853,7 @@ pub struct ctxt<'tcx> {
 
     pub impl_trait_refs: RefCell<DefIdMap<Option<TraitRef<'tcx>>>>,
     pub trait_defs: RefCell<DefIdMap<&'tcx TraitDef<'tcx>>>,
-    pub adt_defs: RefCell<DefIdMap<&'tcx ADTDef<'tcx>>>,
+    pub adt_defs: RefCell<DefIdMap<&'tcx ADTDef_<'tcx, 'tcx>>>,
 
     /// Maps from the def-id of an item (trait/struct/enum/fn) to its
     /// associated predicates.
@@ -986,8 +986,12 @@ impl<'tcx> ctxt<'tcx> {
         interned
     }
 
-    pub fn intern_adt_def(&self, did: DefId, kind: ADTKind) -> &'tcx ADTDef_<'tcx, 'tcx> {
-        let def = ADTDef_::new(self, did, kind);
+    pub fn intern_adt_def(&self,
+                          did: DefId,
+                          kind: ADTKind,
+                          variants: Vec<VariantDef_<'tcx, 'tcx>>)
+                          -> &'tcx ADTDef_<'tcx, 'tcx> {
+        let def = ADTDef_::new(self, did, kind, variants);
         let interned = self.arenas.adt_defs.alloc(def);
         // this will need a transmute when reverse-variance is removed
         self.adt_defs.borrow_mut().insert(did, interned);
@@ -3235,17 +3239,21 @@ bitflags! {
 }
 
 pub type ADTDef<'tcx> = ADTDef_<'tcx, 'static>;
+pub type VariantDef<'tcx> = VariantDef_<'tcx, 'static>;
+pub type FieldDef<'tcx> = FieldDef_<'tcx, 'static>;
 
-pub struct VariantDef<'tcx, 'lt: 'tcx> {
+pub struct VariantDef_<'tcx, 'lt: 'tcx> {
     pub did: DefId,
     pub name: Name, // struct's name if this is a struct
     pub disr_val: Disr,
-    pub fields: Vec<FieldDef<'tcx, 'lt>>
+    pub fields: Vec<FieldDef_<'tcx, 'lt>>
 }
 
-pub struct FieldDef<'tcx, 'lt: 'tcx> {
+pub struct FieldDef_<'tcx, 'lt: 'tcx> {
     pub did: DefId,
-    pub name: Name, // XXX if tuple-like
+    // special_idents::unnamed_field.name
+    // if this is a tuple-like field
+    pub name: Name,
     pub vis: ast::Visibility,
     // TyIVar is used here to allow for
     ty: TyIVar<'tcx, 'lt>
@@ -3255,7 +3263,7 @@ pub struct FieldDef<'tcx, 'lt: 'tcx> {
 /// is here so 'tcx can be variant.
 pub struct ADTDef_<'tcx, 'lt: 'tcx> {
     pub did: DefId,
-    pub variants: Vec<VariantDef<'tcx, 'lt>>,
+    pub variants: Vec<VariantDef_<'tcx, 'lt>>,
     flags: Cell<ADTFlags>,
 }
 
@@ -3278,7 +3286,10 @@ impl<'tcx, 'lt> Hash for ADTDef_<'tcx, 'lt> {
 pub enum ADTKind { Struct, Enum }
 
 impl<'tcx, 'lt> ADTDef_<'tcx, 'lt> {
-    fn new(tcx: &ctxt<'tcx>, did: DefId, kind: ADTKind) -> Self {
+    fn new(tcx: &ctxt<'tcx>,
+           did: DefId,
+           kind: ADTKind,
+           variants: Vec<VariantDef_<'tcx, 'lt>>) -> Self {
         let mut flags = ADTFlags::NO_ADT_FLAGS;
         if tcx.has_attr(did, "fundamental") {
             flags = flags | ADTFlags::IS_FUNDAMENTAL;
@@ -3291,7 +3302,7 @@ impl<'tcx, 'lt> ADTDef_<'tcx, 'lt> {
         }
         ADTDef {
             did: did,
-            variants: vec![],
+            variants: variants,
             flags: Cell::new(flags),
         }
     }
@@ -3348,6 +3359,31 @@ impl<'tcx, 'lt> ADTDef_<'tcx, 'lt> {
     #[inline]
     pub fn predicates(&self, tcx: &ctxt<'tcx>) -> GenericPredicates<'tcx> {
         tcx.lookup_predicates(self.did)
+    }
+}
+
+impl<'tcx, 'lt> FieldDef_<'tcx, 'lt> {
+    pub fn new(did: DefId,
+               name: Name,
+               vis: ast::Visibility) -> Self {
+        FieldDef_ {
+            did: did,
+            name: name,
+            vis: vis,
+            ty: TyIVar::new()
+        }
+    }
+
+    pub fn ty(&self, tcx: &ctxt<'tcx>, subst: &Substs<'tcx>) -> Ty<'tcx> {
+        self.unsubst_ty().subst(tcx, subst)
+    }
+
+    pub fn unsubst_ty(&self) -> Ty<'tcx> {
+        self.ty.unwrap()
+    }
+
+    pub fn fulfill_ty(&self, ty: Ty<'lt>) {
+        self.ty.fulfill(ty);
     }
 }
 
@@ -6043,7 +6079,7 @@ impl<'tcx> ctxt<'tcx> {
     }
 
     /// Given the did of a trait, returns its canonical trait ref.
-    pub fn lookup_adt_def(&self, did: ast::DefId) -> &'tcx ADTDef<'tcx> {
+    pub fn lookup_adt_def(&self, did: ast::DefId) -> &'tcx ADTDef_<'tcx, 'tcx> {
         lookup_locally_or_in_crate_store(
             "adt_defs", did, &self.adt_defs,
             || csearch::get_adt_def(self, did)
