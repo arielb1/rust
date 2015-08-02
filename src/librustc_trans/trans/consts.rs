@@ -579,17 +579,15 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         ast::ExprField(ref base, field) => {
             let (bv, bt) = const_expr(cx, &**base, param_substs, fn_args);
             let brepr = adt::represent_type(cx, bt);
-            expr::with_field_tys(cx.tcx(), bt, None, |discr, field_tys| {
-                let ix = cx.tcx().field_idx_strict(field.node.name, field_tys);
-                adt::const_get_field(cx, &*brepr, bv, discr, ix)
-            })
+            let vinfo = VariantInfo::from_ty(cx.tcx(), bt, None);
+            let ix = vinfo.field_index(field.node.name);
+            adt::const_get_field(cx, &*brepr, bv, vinfo.discr_val, ix)
         },
         ast::ExprTupField(ref base, idx) => {
             let (bv, bt) = const_expr(cx, &**base, param_substs, fn_args);
             let brepr = adt::represent_type(cx, bt);
-            expr::with_field_tys(cx.tcx(), bt, None, |discr, _| {
-                adt::const_get_field(cx, &*brepr, bv, discr, idx.node)
-            })
+            let vinfo = VariantInfo::from_ty(cx.tcx(), bt, None);
+            adt::const_get_field(cx, &*brepr, bv, vinfo.discr_val, idx.node)
         },
 
         ast::ExprIndex(ref base, ref index) => {
@@ -748,21 +746,20 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 None => None
             };
 
-            expr::with_field_tys(cx.tcx(), ety, Some(e.id), |discr, field_tys| {
-                let cs = field_tys.iter().enumerate()
-                                  .map(|(ix, &field_ty)| {
-                    match (fs.iter().find(|f| field_ty.name == f.ident.node.name), base_val) {
-                        (Some(ref f), _) => const_expr(cx, &*f.expr, param_substs, fn_args).0,
-                        (_, Some((bv, _))) => adt::const_get_field(cx, &*repr, bv, discr, ix),
-                        (_, None) => cx.sess().span_bug(e.span, "missing struct field"),
-                    }
-                }).collect::<Vec<_>>();
-                if ety.is_simd(cx.tcx()) {
-                    C_vector(&cs[..])
-                } else {
-                    adt::trans_const(cx, &*repr, discr, &cs[..])
+            let VariantInfo { discr, fields } = VariantInfo::of_node(cx.tcx(), ety, e.id);
+
+            let cs = fields.iter().enumerate().map(|(ix, &(f_name, f_ty))| {
+                match (fs.iter().find(|f| f_name == f.ident.node.name), base_val) {
+                    (Some(ref f), _) => const_expr(cx, &*f.expr, param_substs, fn_args).0,
+                    (_, Some((bv, _))) => adt::const_get_field(cx, &*repr, bv, discr, ix),
+                    (_, None) => cx.sess().span_bug(e.span, "missing struct field"),
                 }
-            })
+            }).collect::<Vec<_>>();
+            if ety.is_simd(cx.tcx()) {
+                C_vector(&cs[..])
+            } else {
+                adt::trans_const(cx, &*repr, discr, &cs[..])
+            }
         },
         ast::ExprVec(ref es) => {
             let unit_ty = ety.sequence_element_type(cx.tcx());

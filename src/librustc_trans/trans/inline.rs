@@ -103,8 +103,8 @@ fn instantiate_inline(ccx: &CrateContext, fn_id: ast::DefId)
           let mut my_id = 0;
           match item.node {
             ast::ItemEnum(_, _) => {
-              let vs_here = ccx.tcx().enum_variants(local_def(item.id));
-              let vs_there = ccx.tcx().enum_variants(parent_id);
+              let vs_here = ccx.tcx().lookup_adt_def(local_def(item.id)).variants;
+              let vs_there = ccx.tcx().lookup_adt_def(parent_id).variants;
               for (here, there) in vs_here.iter().zip(vs_there.iter()) {
                   if there.id == fn_id { my_id = here.id.node; }
                   ccx.external().borrow_mut().insert(there.id, Some(here.id.node));

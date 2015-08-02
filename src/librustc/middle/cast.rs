@@ -66,7 +66,7 @@ impl<'tcx> CastTy<'tcx> {
             ty::TyInt(_) => Some(CastTy::Int(IntTy::I)),
             ty::TyUint(u) => Some(CastTy::Int(IntTy::U(u))),
             ty::TyFloat(_) => Some(CastTy::Float),
-            ty::TyEnum(..) if t.is_c_like_enum(tcx) =>
+            ty::TyEnum(d,_) if d.is_payloadfree() =>
                 Some(CastTy::Int(IntTy::CEnum)),
             ty::TyRawPtr(ref mt) => Some(CastTy::Ptr(mt)),
             ty::TyRef(_, ref mt) => Some(CastTy::RPtr(mt)),

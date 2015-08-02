@@ -271,6 +271,61 @@ pub fn expr_info(expr: &ast::Expr) -> NodeIdAndSpan {
     NodeIdAndSpan { id: expr.id, span: expr.span }
 }
 
+/// The concrete version of ty::VariantDef
+pub struct VariantInfo<'tcx> {
+    pub discr: ty::Disr,
+    pub fields: Vec<(ast::Name, Ty<'tcx>)>
+}
+
+impl<'tcx> VariantInfo<'tcx> {
+    pub fn from_ty(tcx: &ty::ctxt<'tcx>, ty: Ty<'tcx>, opt_vid: Option<ast::DefId>) -> Self {
+        match ty.sty {
+            ty::TyStruct(adt, substs) | ty::TyEnum(adt, substs) => {
+                let variant = match opt_vid {
+                    None => adt.struct_variant(),
+                    Some(vid) => adt.variant_with_id(vid)
+                };
+
+                VariantInfo {
+                    discr: variant.disr_var,
+                    fields: variant.fields.map(|f| {
+                        let fty = f.ty(tcx, substs);
+                        let fty = *monomorphize::normalize_associated_type(tcx, &fty);
+                        (f.name, fty)
+                    }).collect()
+                }
+            }
+
+            ty::TyTuple(ref v) => {
+                VariantInfo {
+                    discr: 0,
+                    fields: v.iter().enumerate().map(|(i, &t)| {
+                        (token::intern(&i.to_string()), t)
+                    }).collect()
+                }
+            }
+
+            _ => {
+                tcx.sess.bug(&format!(
+                    "cannot get field types from the type {:?}",
+                    ty));
+            }
+        }
+    }
+
+    /// Return the variant corresponding to a given node (e.g. expr)
+    pub fn of_node(tcx: &ty::ctxt<'tcx>, ty: Ty<'tcx>, id: ast::NodeId) -> Self {
+        let vid = tcx.def_map.borrow().get(&id).unwrap().full_def().def_id();
+        Self::from_ty(tcx, ty, Some(vid))
+    }
+
+    pub fn field_index(&self, name: ast::Name) -> usize {
+        self.fields.iter().position(|&(n,_)| n == name).unwrap_or_else(|| {
+            panic!("unknown field `{}`", name)
+        })
+    }
+}
+
 pub struct BuilderRef_res {
     pub b: BuilderRef,
 }

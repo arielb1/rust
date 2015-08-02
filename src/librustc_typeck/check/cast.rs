@@ -80,9 +80,10 @@ fn unsize_kind<'a,'tcx>(fcx: &FnCtxt<'a, 'tcx>,
         ty::TySlice(_) | ty::TyStr => Some(UnsizeKind::Length),
         ty::TyTrait(ref tty) => Some(UnsizeKind::Vtable(tty.principal_def_id())),
         ty::TyStruct(def, substs) => {
-            match fcx.tcx().struct_fields(def.did, substs).pop() {
+            // FIXME(arielb1): do some kind of normalization
+            match def.struct_variant().fields.last() {
                 None => None,
-                Some(f) => unsize_kind(fcx, f.mt.ty)
+                Some(f) => unsize_kind(fcx, f.ty(fcx.tcx(), substs))
             }
         }
         // We should really try to normalize here.

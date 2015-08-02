@@ -56,7 +56,7 @@ use trans::closure;
 use trans::common::{Block, C_bool, C_bytes_in_context, C_i32, C_int, C_integral};
 use trans::common::{C_null, C_struct_in_context, C_u64, C_u8, C_undef};
 use trans::common::{CrateContext, DropFlagHintsMap, FunctionContext};
-use trans::common::{Result, NodeIdAndSpan};
+use trans::common::{Result, NodeIdAndSpan, VariantInfo};
 use trans::common::{node_id_type, return_type_is_void};
 use trans::common::{type_is_immediate, type_is_zero_size, val_ty};
 use trans::common;
@@ -415,22 +415,20 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
     match t.sty {
       ty::TyStruct(..) => {
           let repr = adt::represent_type(cx.ccx(), t);
-          expr::with_field_tys(cx.tcx(), t, None, |discr, field_tys| {
-              for (i, field_ty) in field_tys.iter().enumerate() {
-                  let field_ty = field_ty.mt.ty;
-                  let llfld_a = adt::trans_field_ptr(cx, &*repr, data_ptr, discr, i);
+          let VariantInfo { fields, discr } = VariantInfo::for_ty(cx.tcx(), t, None);
+          for (i, &(_, field_ty)) in fields.iter().enumerate() {
+              let llfld_a = adt::trans_field_ptr(cx, &*repr, data_ptr, discr, i);
 
-                  let val = if common::type_is_sized(cx.tcx(), field_ty) {
-                      llfld_a
-                  } else {
-                      let scratch = datum::rvalue_scratch_datum(cx, field_ty, "__fat_ptr_iter");
-                      Store(cx, llfld_a, GEPi(cx, scratch.val, &[0, abi::FAT_PTR_ADDR]));
-                      Store(cx, info.unwrap(), GEPi(cx, scratch.val, &[0, abi::FAT_PTR_EXTRA]));
-                      scratch.val
-                  };
-                  cx = f(cx, val, field_ty);
-              }
-          })
+              let val = if common::type_is_sized(cx.tcx(), field_ty) {
+                  llfld_a
+              } else {
+                  let scratch = datum::rvalue_scratch_datum(cx, field_ty, "__fat_ptr_iter");
+                  Store(cx, llfld_a, GEPi(cx, scratch.val, &[0, abi::FAT_PTR_ADDR]));
+                  Store(cx, info.unwrap(), GEPi(cx, scratch.val, &[0, abi::FAT_PTR_EXTRA]));
+                  scratch.val
+              };
+              cx = f(cx, val, field_ty);
+          }
       }
       ty::TyClosure(_, ref substs) => {
           let repr = adt::represent_type(cx.ccx(), t);

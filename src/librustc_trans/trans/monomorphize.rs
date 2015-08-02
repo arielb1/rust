@@ -193,8 +193,8 @@ pub fn monomorphic_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
         }
         ast_map::NodeVariant(v) => {
             let parent = ccx.tcx().map.get_parent(fn_id.node);
-            let tvs = ccx.tcx().enum_variants(local_def(parent));
-            let this_tv = tvs.iter().find(|tv| { tv.id.node == fn_id.node}).unwrap();
+            let tvs = ccx.tcx().lookup_adt_def(local_def(parent));
+            let this_tv = tvs.variant_with_id(local_def(fn_id.node));
             let d = mk_lldecl(abi::Rust);
             attributes::inline(d, attributes::InlineAttr::Hint);
             match v.node.kind {
