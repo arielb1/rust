@@ -29,7 +29,6 @@ use middle::ty::{self, HasTypeFlags, Ty};
 
 use syntax::abi;
 use syntax::ast;
-use syntax::ast_util::local_def;
 use syntax::attr;
 use syntax::codemap::DUMMY_SP;
 use std::hash::{Hasher, Hash, SipHasher};

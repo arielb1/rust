@@ -466,12 +466,31 @@ pub fn get_adt_def<'tcx>(intr: &IdentInterner,
     // this needs to be done *after* the variant is interned,
     // to support recursive structures
     for variant in &adt.variants {
-        for field in &variant.fields {
-            debug!("evaluating the type of {:?}::{:?}", variant.name, field.name);
-            let ty = get_type(cdata, field.did.node, tcx).ty;
-            field.fulfill_ty(ty);
-            debug!("evaluating the type of {:?}::{:?}: {:?}",
-                   variant.name, field.name, ty);
+        if variant.kind() == ty::VariantKind::Tuple &&
+            adt.adt_kind() == ty::ADTKind::Enum {
+            // tuple-like enum variant fields aren't real items - get the types
+            // from the ctor.
+            debug!("evaluating the ctor-type of {:?}",
+                   variant.name);
+            let ctor_ty = get_type(cdata, variant.did.node, tcx).ty;
+            debug!("evaluating the ctor-type of {:?}.. {:?}",
+                   variant.name,
+                   ctor_ty);
+            let field_tys = match ctor_ty.sty {
+                ty::TyBareFn(_, ref f) => &f.sig.skip_binder().inputs,
+                _ => tcx.sess.bug("tuple-variant ctor is not an ADT")
+            };
+            for (field, &ty) in variant.fields.iter().zip(field_tys.iter()) {
+                field.fulfill_ty(ty);
+            }
+        } else {
+            for field in &variant.fields {
+                debug!("evaluating the type of {:?}::{:?}", variant.name, field.name);
+                let ty = get_type(cdata, field.did.node, tcx).ty;
+                field.fulfill_ty(ty);
+                debug!("evaluating the type of {:?}::{:?}: {:?}",
+                       variant.name, field.name, ty);
+            }
         }
     }
 

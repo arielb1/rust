@@ -224,8 +224,8 @@ impl<'tcx> CastCheck<'tcx> {
         use middle::cast::IntTy::*;
         use middle::cast::CastTy::*;
 
-        let (t_from, t_cast) = match (CastTy::from_ty(fcx.tcx(), self.expr_ty),
-                                      CastTy::from_ty(fcx.tcx(), self.cast_ty)) {
+        let (t_from, t_cast) = match (CastTy::from_ty(self.expr_ty),
+                                      CastTy::from_ty(self.cast_ty)) {
             (Some(t_from), Some(t_cast)) => (t_from, t_cast),
             _ => {
                 return Err(CastError::NonScalar)

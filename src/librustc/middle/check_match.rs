@@ -898,7 +898,8 @@ pub fn specialize<'a>(cx: &MatchCheckCtxt, r: &[&'a Pat],
             let def = cx.tcx.def_map.borrow().get(&pat_id).unwrap().full_def();
             let adt = cx.tcx.node_id_to_type(pat_id).ty_adt_def().unwrap();
             let variant = adt.variant_of_ctor(constructor);
-            if variant.did == def.def_id() {
+            let def_variant = adt.variant_of_def(def);
+            if variant.did == def_variant.did {
                 Some(variant.fields.iter().map(|sf| {
                     match pattern_fields.iter().find(|f| f.node.ident.name == sf.name) {
                         Some(ref f) => &*f.node.pat,

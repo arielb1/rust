@@ -662,8 +662,8 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 }
             }
             unsafe { match (
-                CastTy::from_ty(cx.tcx(), t_expr).expect("bad input type for cast"),
-                CastTy::from_ty(cx.tcx(), t_cast).expect("bad output type for cast"),
+                CastTy::from_ty(t_expr).expect("bad input type for cast"),
+                CastTy::from_ty(t_cast).expect("bad output type for cast"),
             ) {
                 (CastTy::Int(IntTy::CEnum), CastTy::Int(_)) => {
                     let repr = adt::represent_type(cx, t_expr);
@@ -747,8 +747,7 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             };
 
             let VariantInfo { discr, fields } = VariantInfo::of_node(cx.tcx(), ety, e.id);
-
-            let cs = fields.iter().enumerate().map(|(ix, &Field(f_name, f_ty))| {
+            let cs = fields.iter().enumerate().map(|(ix, &Field(f_name, _))| {
                 match (fs.iter().find(|f| f_name == f.ident.node.name), base_val) {
                     (Some(ref f), _) => const_expr(cx, &*f.expr, param_substs, fn_args).0,
                     (_, Some((bv, _))) => adt::const_get_field(cx, &*repr, bv, discr, ix),

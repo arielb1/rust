@@ -49,6 +49,7 @@ use std::cell::{Cell, RefCell};
 use std::result::Result as StdResult;
 use std::vec::Vec;
 use syntax::ast;
+use syntax::ast_util::local_def;
 use syntax::codemap::{DUMMY_SP, Span};
 use syntax::parse::token::InternedString;
 use syntax::parse::token;
@@ -282,14 +283,14 @@ pub struct VariantInfo<'tcx> {
 impl<'tcx> VariantInfo<'tcx> {
     pub fn from_ty(tcx: &ty::ctxt<'tcx>,
                    ty: Ty<'tcx>,
-                   opt_vid: Option<ast::DefId>)
+                   opt_def: Option<def::Def>)
                    -> Self
     {
         match ty.sty {
             ty::TyStruct(adt, substs) | ty::TyEnum(adt, substs) => {
-                let variant = match opt_vid {
+                let variant = match opt_def {
                     None => adt.struct_variant(),
-                    Some(vid) => adt.variant_with_id(vid)
+                    Some(def) => adt.variant_of_def(def)
                 };
 
                 VariantInfo {
@@ -319,8 +320,8 @@ impl<'tcx> VariantInfo<'tcx> {
 
     /// Return the variant corresponding to a given node (e.g. expr)
     pub fn of_node(tcx: &ty::ctxt<'tcx>, ty: Ty<'tcx>, id: ast::NodeId) -> Self {
-        let vid = tcx.def_map.borrow().get(&id).unwrap().full_def().def_id();
-        Self::from_ty(tcx, ty, Some(vid))
+        let node_def = tcx.def_map.borrow().get(&id).map(|v| v.full_def());
+        Self::from_ty(tcx, ty, node_def)
     }
 
     pub fn field_index(&self, name: ast::Name) -> usize {
@@ -1243,9 +1244,18 @@ pub fn inlined_variant_def<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                                      inlined_vid: ast::NodeId)
                                      -> &'tcx ty::VariantDef<'tcx>
 {
-    let adt_def = ccx.tcx().node_id_to_type(inlined_vid).ty_adt_def().unwrap();
+    let ctor_ty = ccx.tcx().node_id_to_type(inlined_vid);
+    debug!("inlined_variant_def: ctor_ty={:?} inlined_vid={:?}", ctor_ty,
+           inlined_vid);
+    let adt_def = match ctor_ty.sty {
+        ty::TyBareFn(_, &ty::BareFnTy { sig: ty::Binder(ty::FnSig {
+            output: ty::FnConverging(ty), ..
+        }), ..}) => ty,
+        _ => ctor_ty
+    }.ty_adt_def().unwrap();
     adt_def.variants.iter().find(|v| {
-        ccx.external().borrow().get(&v.did) == Some(&Some(inlined_vid))
+        local_def(inlined_vid) == v.did ||
+            ccx.external().borrow().get(&v.did) == Some(&Some(inlined_vid))
     }).unwrap_or_else(|| {
         ccx.sess().bug(&format!("no variant for {:?}::{}", adt_def, inlined_vid))
     })

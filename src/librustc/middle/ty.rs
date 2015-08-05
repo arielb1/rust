@@ -3287,6 +3287,8 @@ pub struct VariantDef_<'tcx, 'lt: 'tcx> {
 }
 
 pub struct FieldDef_<'tcx, 'lt: 'tcx> {
+    /// The field's def-id. Be aware that tuple-like enum fields
+    /// are currently not real items (you can't e.g. lookup_item_type them).
     pub did: DefId,
     // special_idents::unnamed_field.name
     // if this is a tuple-like field
@@ -3424,7 +3426,8 @@ impl<'tcx, 'lt> ADTDef_<'tcx, 'lt> {
     }
 
     pub fn is_payloadfree(&self) -> bool {
-        self.variants.iter().all(|v| v.fields.is_empty())
+        !self.variants.is_empty() &&
+            self.variants.iter().all(|v| v.fields.is_empty())
     }
 
     pub fn variant_with_id(&self, vid: DefId) -> &VariantDef_<'tcx, 'lt> {
@@ -3437,11 +3440,8 @@ impl<'tcx, 'lt> ADTDef_<'tcx, 'lt> {
     pub fn variant_of_def(&self, def: def::Def) -> &VariantDef_<'tcx, 'lt> {
         match def {
             def::DefVariant(_, vid, _) => self.variant_with_id(vid),
-            def::DefStruct(..) => self.struct_variant(),
-            _ => {
-                debug!("unexpected def {:?} in variant_of_def", def);
-                unreachable!()
-            }
+            def::DefStruct(..) | def::DefTy(..) => self.struct_variant(),
+            _ => panic!("unexpected def {:?} in variant_of_def", def)
         }
     }
 }

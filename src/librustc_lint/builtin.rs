@@ -417,11 +417,13 @@ fn is_repr_nullable_ptr<'tcx>(tcx: &ty::ctxt<'tcx>,
                               substs: &Substs<'tcx>)
                               -> bool {
     if def.variants.len() == 2 {
-        let mut data_idx = 0;
+        let data_idx;
 
         if def.variants[0].fields.is_empty() {
             data_idx = 1;
-        } else if !def.variants[1].fields.is_empty() {
+        } else if def.variants[1].fields.is_empty() {
+            data_idx = 0;
+        } else {
             return false;
         }
 

@@ -319,9 +319,11 @@ fn encode_enum_variant_info(ecx: &EncodeContext,
                                              rbml_w,
                                              &variant.fields,
                                              index);
-            encode_struct_fields(rbml_w, &variant.fields, vid);
             encode_index(rbml_w, idx, write_i64);
         }
+
+        encode_struct_fields(rbml_w, &variant.fields, vid);
+
         let specified_disr_val = variant.disr_val;
         if specified_disr_val != disr_val {
             encode_disr_val(ecx, rbml_w, specified_disr_val);

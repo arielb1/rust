@@ -27,7 +27,7 @@ use metadata::csearch;
 use middle::pat_util;
 use middle::subst::{self, Substs};
 use rustc::ast_map;
-use trans::{type_of, adt, machine, monomorphize};
+use trans::{type_of, adt, machine};
 use trans::common::{self, CrateContext, FunctionContext, Block, Field};
 use trans::_match::{BindingInfo, TransBindingMode};
 use trans::type_::Type;
@@ -44,7 +44,7 @@ use std::rc::Rc;
 use syntax::util::interner::Interner;
 use syntax::codemap::Span;
 use syntax::{ast, codemap, ast_util};
-use syntax::parse::token::{self, special_idents};
+use syntax::parse::token;
 
 
 const DW_LANG_RUST: c_uint = 0x9000;
@@ -784,11 +784,9 @@ pub fn type_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                                    unique_type_id,
                                    usage_site_span).finalize(cx)
         }
-        ty::TyStruct(def, substs) => {
+        ty::TyStruct(..) => {
             prepare_struct_metadata(cx,
                                     t,
-                                    def.did,
-                                    substs,
                                     unique_type_id,
                                     usage_site_span).finalize(cx)
         }
@@ -1145,11 +1143,10 @@ impl<'tcx> StructMemberDescriptionFactory<'tcx> {
 
 fn prepare_struct_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                                      struct_type: Ty<'tcx>,
-                                     def_id: ast::DefId,
-                                     substs: &subst::Substs<'tcx>,
                                      unique_type_id: UniqueTypeId,
                                      span: Span)
                                      -> RecursiveTypeDescription<'tcx> {
+    let def_id = struct_type.ty_to_def_id().unwrap();
     let struct_name = compute_debuginfo_type_name(cx, struct_type, false);
     let struct_llvm_type = type_of::in_memory_type_of(cx, struct_type);
 

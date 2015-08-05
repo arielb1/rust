@@ -913,18 +913,22 @@ impl<'a, 'tcx, 'v> Visitor<'v> for PrivacyVisitor<'a, 'tcx> {
             }
             ast::ExprPath(..) => {
                 if let def::DefStruct(_) = self.tcx.resolve_expr(expr) {
-                    if let ty::TyStruct(def, _) = self.tcx.expr_ty(expr).sty {
-                        let fields = &def.struct_variant().fields;
-                        let any_priv = fields.iter().any(|f| {
-                            f.vis != ast::Public && (
-                                !is_local(f.did) ||
+                    let expr_ty = self.tcx.expr_ty(expr);
+                    let def = match expr_ty.sty {
+                        ty::TyBareFn(_, &ty::BareFnTy { sig: ty::Binder(ty::FnSig {
+                            output: ty::FnConverging(ty), ..
+                        }), ..}) => ty,
+                        _ => expr_ty
+                    }.ty_adt_def().unwrap();
+                    let any_priv = def.struct_variant().fields.iter().any(|f| {
+                        f.vis != ast::Public && (
+                            !is_local(f.did) ||
                                     !self.private_accessible(f.did.node))
                         });
-                        if any_priv {
-                            self.tcx.sess.span_err(expr.span,
-                                                   "cannot invoke tuple struct constructor \
-                                                    with private fields");
-                        }
+                    if any_priv {
+                        self.tcx.sess.span_err(expr.span,
+                                               "cannot invoke tuple struct construcor \
+                                                with private fields");
                     }
                 }
             }

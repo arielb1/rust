@@ -110,8 +110,6 @@ impl<'a, 'tcx> MarkSymbolVisitor<'a, 'tcx> {
     fn handle_tup_field_access(&mut self, lhs: &ast::Expr, idx: usize) {
         if let ty::TyStruct(def, _) = self.tcx.expr_ty_adjusted(lhs).sty {
             self.live_symbols.insert(def.struct_variant().fields[idx].did.node);
-        } else {
-            self.tcx.sess.span_bug(lhs.span, "indexed field access on non-struct")
         }
     }
 

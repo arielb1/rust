@@ -2965,6 +2965,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                     ty::TyStruct(base_def, substs) => {
                         if base_def.struct_variant().is_tuple_struct() {
                             debug!("tuple struct named {:?}",  base_t);
+                            tuple_like = true;
                             base_def.struct_variant()
                                     .fields
                                     .get(idx.node)

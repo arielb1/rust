@@ -58,8 +58,7 @@ pub enum CastKind {
 }
 
 impl<'tcx> CastTy<'tcx> {
-    pub fn from_ty(tcx: &ty::ctxt<'tcx>, t: Ty<'tcx>)
-                   -> Option<CastTy<'tcx>> {
+    pub fn from_ty(t: Ty<'tcx>) -> Option<CastTy<'tcx>> {
         match t.sty {
             ty::TyBool => Some(CastTy::Int(IntTy::Bool)),
             ty::TyChar => Some(CastTy::Int(IntTy::Char)),

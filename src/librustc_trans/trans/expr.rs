@@ -68,7 +68,6 @@ use trans::debuginfo::{self, DebugLoc, ToDebugLoc};
 use trans::glue;
 use trans::machine;
 use trans::meth;
-use trans::monomorphize;
 use trans::tvec;
 use trans::type_of;
 use middle::cast::{CastKind, CastTy};
@@ -743,7 +742,7 @@ fn trans_rec_field<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                base: &ast::Expr,
                                field: ast::Name)
                                -> DatumBlock<'blk, 'tcx, Expr> {
-    trans_field(bcx, base, |tcx, vinfo| vinfo.field_index(field))
+    trans_field(bcx, base, |_, vinfo| vinfo.field_index(field))
 }
 
 /// Translates `base.<idx>`.
@@ -2049,8 +2048,8 @@ fn trans_imm_cast<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         }
     }
 
-    let r_t_in = CastTy::from_ty(bcx.tcx(), t_in).expect("bad input type for cast");
-    let r_t_out = CastTy::from_ty(bcx.tcx(), t_out).expect("bad output type for cast");
+    let r_t_in = CastTy::from_ty(t_in).expect("bad input type for cast");
+    let r_t_out = CastTy::from_ty(t_out).expect("bad output type for cast");
 
     let (llexpr, signed) = if let Int(CEnum) = r_t_in {
         let repr = adt::represent_type(ccx, t_in);
