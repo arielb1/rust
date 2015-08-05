@@ -3414,7 +3414,6 @@ impl<'tcx, 'lt> ADTDef_<'tcx, 'lt> {
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        // FIXME(#TODO(wxyz)): be smarter here
         self.variants.is_empty()
     }
 
@@ -4250,6 +4249,7 @@ impl<'tcx> TyS<'tcx> {
     }
 
     pub fn is_empty(&self, _cx: &ctxt) -> bool {
+        // FIXME(#24885): be smarter here
         match self.sty {
             TyEnum(def, _) | TyStruct(def, _) => def.is_empty(),
             _ => false
