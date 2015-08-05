@@ -927,7 +927,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for PrivacyVisitor<'a, 'tcx> {
                         });
                     if any_priv {
                         self.tcx.sess.span_err(expr.span,
-                                               "cannot invoke tuple struct construcor \
+                                               "cannot invoke tuple struct constructor \
                                                 with private fields");
                     }
                 }
