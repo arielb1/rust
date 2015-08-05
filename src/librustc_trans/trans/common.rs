@@ -174,11 +174,9 @@ fn type_needs_drop_given_env<'a,'tcx>(cx: &ty::ctxt<'tcx>,
 fn type_is_newtype_immediate<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, ty: Ty<'tcx>) -> bool {
     match ty.sty {
         ty::TyStruct(def, substs) => {
-            let fields = ccx.tcx().lookup_struct_fields(def.did);
+            let fields = &def.struct_variant().fields;
             fields.len() == 1 && {
-                let ty = ccx.tcx().lookup_field_type(def.did, fields[0].id, substs);
-                let ty = monomorphize::normalize_associated_type(ccx.tcx(), &ty);
-                type_is_immediate(ccx, ty)
+                type_is_immediate(ccx, monomorphize::field_ty(ccx.tcx(), substs, &fields[0]))
             }
         }
         _ => false
@@ -271,14 +269,22 @@ pub fn expr_info(expr: &ast::Expr) -> NodeIdAndSpan {
     NodeIdAndSpan { id: expr.id, span: expr.span }
 }
 
+/// The concrete version of ty::FieldDef. The name is the field index if
+/// the field is numeric.
+pub struct Field<'tcx>(pub ast::Name, pub Ty<'tcx>);
+
 /// The concrete version of ty::VariantDef
 pub struct VariantInfo<'tcx> {
     pub discr: ty::Disr,
-    pub fields: Vec<(ast::Name, Ty<'tcx>)>
+    pub fields: Vec<Field<'tcx>>
 }
 
 impl<'tcx> VariantInfo<'tcx> {
-    pub fn from_ty(tcx: &ty::ctxt<'tcx>, ty: Ty<'tcx>, opt_vid: Option<ast::DefId>) -> Self {
+    pub fn from_ty(tcx: &ty::ctxt<'tcx>,
+                   ty: Ty<'tcx>,
+                   opt_vid: Option<ast::DefId>)
+                   -> Self
+    {
         match ty.sty {
             ty::TyStruct(adt, substs) | ty::TyEnum(adt, substs) => {
                 let variant = match opt_vid {
@@ -287,11 +293,9 @@ impl<'tcx> VariantInfo<'tcx> {
                 };
 
                 VariantInfo {
-                    discr: variant.disr_var,
-                    fields: variant.fields.map(|f| {
-                        let fty = f.ty(tcx, substs);
-                        let fty = *monomorphize::normalize_associated_type(tcx, &fty);
-                        (f.name, fty)
+                    discr: variant.disr_val,
+                    fields: variant.fields.iter().map(|f| {
+                        Field(f.name, monomorphize::field_ty(tcx, substs, f))
                     }).collect()
                 }
             }
@@ -300,7 +304,7 @@ impl<'tcx> VariantInfo<'tcx> {
                 VariantInfo {
                     discr: 0,
                     fields: v.iter().enumerate().map(|(i, &t)| {
-                        (token::intern(&i.to_string()), t)
+                        Field(token::intern(&i.to_string()), t)
                     }).collect()
                 }
             }
@@ -320,7 +324,7 @@ impl<'tcx> VariantInfo<'tcx> {
     }
 
     pub fn field_index(&self, name: ast::Name) -> usize {
-        self.fields.iter().position(|&(n,_)| n == name).unwrap_or_else(|| {
+        self.fields.iter().position(|&Field(n,_)| n == name).unwrap_or_else(|| {
             panic!("unknown field `{}`", name)
         })
     }
@@ -1232,4 +1236,17 @@ pub fn langcall(bcx: Block,
             }
         }
     }
+}
+
+/// Return the VariantDef corresponding to an inlined variant node
+pub fn inlined_variant_def<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
+                                     inlined_vid: ast::NodeId)
+                                     -> &'tcx ty::VariantDef<'tcx>
+{
+    let adt_def = ccx.tcx().node_id_to_type(inlined_vid).ty_adt_def().unwrap();
+    adt_def.variants.iter().find(|v| {
+        ccx.external().borrow().get(&v.did) == Some(&Some(inlined_vid))
+    }).unwrap_or_else(|| {
+        ccx.sess().bug(&format!("no variant for {:?}::{}", adt_def, inlined_vid))
+    })
 }

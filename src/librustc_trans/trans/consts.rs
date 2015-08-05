@@ -581,13 +581,13 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             let brepr = adt::represent_type(cx, bt);
             let vinfo = VariantInfo::from_ty(cx.tcx(), bt, None);
             let ix = vinfo.field_index(field.node.name);
-            adt::const_get_field(cx, &*brepr, bv, vinfo.discr_val, ix)
+            adt::const_get_field(cx, &*brepr, bv, vinfo.discr, ix)
         },
         ast::ExprTupField(ref base, idx) => {
             let (bv, bt) = const_expr(cx, &**base, param_substs, fn_args);
             let brepr = adt::represent_type(cx, bt);
             let vinfo = VariantInfo::from_ty(cx.tcx(), bt, None);
-            adt::const_get_field(cx, &*brepr, bv, vinfo.discr_val, idx.node)
+            adt::const_get_field(cx, &*brepr, bv, vinfo.discr, idx.node)
         },
 
         ast::ExprIndex(ref base, ref index) => {
@@ -748,7 +748,7 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
 
             let VariantInfo { discr, fields } = VariantInfo::of_node(cx.tcx(), ety, e.id);
 
-            let cs = fields.iter().enumerate().map(|(ix, &(f_name, f_ty))| {
+            let cs = fields.iter().enumerate().map(|(ix, &Field(f_name, f_ty))| {
                 match (fs.iter().find(|f| f_name == f.ident.node.name), base_val) {
                     (Some(ref f), _) => const_expr(cx, &*f.expr, param_substs, fn_args).0,
                     (_, Some((bv, _))) => adt::const_get_field(cx, &*repr, bv, discr, ix),
@@ -803,14 +803,18 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                     const_deref_ptr(cx, get_const_val(cx, def_id, e))
                 }
                 def::DefVariant(enum_did, variant_did, _) => {
-                    let vinfo = cx.tcx().enum_variant_with_id(enum_did, variant_did);
-                    if !vinfo.args.is_empty() {
-                        // N-ary variant.
-                        expr::trans_def_fn_unadjusted(cx, e, def, param_substs).val
-                    } else {
-                        // Nullary variant.
-                        let repr = adt::represent_type(cx, ety);
-                        adt::trans_const(cx, &*repr, vinfo.disr_val, &[])
+                    let vinfo = cx.tcx().lookup_adt_def(enum_did).variant_with_id(variant_did);
+                    match vinfo.kind() {
+                        ty::VariantKind::Unit => {
+                            let repr = adt::represent_type(cx, ety);
+                            adt::trans_const(cx, &*repr, vinfo.disr_val, &[])
+                        }
+                        ty::VariantKind::Tuple => {
+                            expr::trans_def_fn_unadjusted(cx, e, def, param_substs).val
+                        }
+                        ty::VariantKind::Dict => {
+                            cx.sess().span_bug(e.span, "path-expr refers to a dict variant!")
+                        }
                     }
                 }
                 def::DefStruct(_) => {
@@ -856,7 +860,7 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 }
                 def::DefVariant(enum_did, variant_did, _) => {
                     let repr = adt::represent_type(cx, ety);
-                    let vinfo = cx.tcx().enum_variant_with_id(enum_did, variant_did);
+                    let vinfo = cx.tcx().lookup_adt_def(enum_did).variant_with_id(variant_did);
                     adt::trans_const(cx,
                                      &*repr,
                                      vinfo.disr_val,

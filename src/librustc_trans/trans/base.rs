@@ -55,7 +55,7 @@ use trans::cleanup::{self, CleanupMethods, DropHint};
 use trans::closure;
 use trans::common::{Block, C_bool, C_bytes_in_context, C_i32, C_int, C_integral};
 use trans::common::{C_null, C_struct_in_context, C_u64, C_u8, C_undef};
-use trans::common::{CrateContext, DropFlagHintsMap, FunctionContext};
+use trans::common::{CrateContext, DropFlagHintsMap, Field, FunctionContext};
 use trans::common::{Result, NodeIdAndSpan, VariantInfo};
 use trans::common::{node_id_type, return_type_is_void};
 use trans::common::{type_is_immediate, type_is_zero_size, val_ty};
@@ -386,7 +386,7 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
     fn iter_variant<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
                                    repr: &adt::Repr<'tcx>,
                                    av: ValueRef,
-                                   variant: &ty::VariantInfo<'tcx>,
+                                   variant: &ty::VariantDef<'tcx>,
                                    substs: &Substs<'tcx>,
                                    f: &mut F)
                                    -> Block<'blk, 'tcx> where
@@ -396,8 +396,8 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
         let tcx = cx.tcx();
         let mut cx = cx;
 
-        for (i, &arg) in variant.args.iter().enumerate() {
-            let arg = monomorphize::apply_param_substs(tcx, substs, &arg);
+        for (i, field) in variant.fields.iter().enumerate() {
+            let arg = monomorphize::field_ty(tcx, substs, field);
             cx = f(cx, adt::trans_field_ptr(cx, repr, av, variant.disr_val, i), arg);
         }
         return cx;
@@ -415,8 +415,8 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
     match t.sty {
       ty::TyStruct(..) => {
           let repr = adt::represent_type(cx.ccx(), t);
-          let VariantInfo { fields, discr } = VariantInfo::for_ty(cx.tcx(), t, None);
-          for (i, &(_, field_ty)) in fields.iter().enumerate() {
+          let VariantInfo { fields, discr } = VariantInfo::from_ty(cx.tcx(), t, None);
+          for (i, &Field(_, field_ty)) in fields.iter().enumerate() {
               let llfld_a = adt::trans_field_ptr(cx, &*repr, data_ptr, discr, i);
 
               let val = if common::type_is_sized(cx.tcx(), field_ty) {
@@ -458,8 +458,7 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
           let ccx = fcx.ccx;
 
           let repr = adt::represent_type(ccx, t);
-          let variants = ccx.tcx().enum_variants(en.did);
-          let n_variants = (*variants).len();
+          let n_variants = en.variants.len();
 
           // NB: we must hit the discriminant first so that structural
           // comparison know not to proceed when the discriminants differ.
@@ -468,7 +467,7 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
               (_match::Single, None) => {
                   if n_variants != 0 {
                       assert!(n_variants == 1);
-                      cx = iter_variant(cx, &*repr, av, &*(*variants)[0],
+                      cx = iter_variant(cx, &*repr, av, &en.variants[0],
                                         substs, &mut f);
                   }
               }
@@ -494,7 +493,7 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
                                         n_variants);
                   let next_cx = fcx.new_temp_block("enum-iter-next");
 
-                  for variant in &(*variants) {
+                  for variant in &en.variants {
                       let variant_cx =
                           fcx.new_temp_block(
                               &format!("enum-iter-variant-{}",
@@ -511,7 +510,7 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
                           iter_variant(variant_cx,
                                        &*repr,
                                        data_ptr,
-                                       &**variant,
+                                       variant,
                                        substs,
                                        &mut f);
                       Br(variant_cx, next_cx.llbb, DebugLoc::None);
@@ -1692,9 +1691,7 @@ pub fn trans_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
 }
 
 pub fn trans_enum_variant<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
-                                    _enum_id: ast::NodeId,
-                                    variant: &ast::Variant,
-                                    _args: &[ast::VariantArg],
+                                    ctor_id: ast::NodeId,
                                     disr: ty::Disr,
                                     param_substs: &'tcx Substs<'tcx>,
                                     llfndecl: ValueRef) {
@@ -1702,7 +1699,7 @@ pub fn trans_enum_variant<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
 
     trans_enum_variant_or_tuple_like_struct(
         ccx,
-        variant.node.id,
+        ctor_id,
         disr,
         param_substs,
         llfndecl);
@@ -1774,7 +1771,6 @@ pub fn trans_named_tuple_constructor<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
 }
 
 pub fn trans_tuple_struct<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
-                                    _fields: &[ast::StructField],
                                     ctor_id: ast::NodeId,
                                     param_substs: &'tcx Substs<'tcx>,
                                     llfndecl: ValueRef) {

@@ -1191,8 +1191,7 @@ fn compile_submatch_continue<'a, 'p, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                 // since we can only ever match that field behind
                 // a reference we construct a fat ptr here.
                 let unsized_ty = def.struct_variant().fields.last().map(|field| {
-                    let fty = field.ty(bcx.tcx(), substs);
-                    monomorphize::normalize_associated_type(bcx.tcx(), &fty)
+                    monomorphize::field_ty(bcx.tcx(), substs, field)
                 }).unwrap();
                 let llty = type_of::type_of(bcx.ccx(), unsized_ty);
                 let scratch = alloca_no_lifetime(bcx, llty, "__struct_field_fat_ptr");

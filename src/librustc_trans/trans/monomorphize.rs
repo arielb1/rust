@@ -192,24 +192,11 @@ pub fn monomorphic_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
             }
         }
         ast_map::NodeVariant(v) => {
-            let parent = ccx.tcx().map.get_parent(fn_id.node);
-            let tvs = ccx.tcx().lookup_adt_def(local_def(parent));
-            let this_tv = tvs.variant_with_id(local_def(fn_id.node));
+            let variant = inlined_variant_def(ccx, fn_id.node);
+            assert_eq!(v.node.name.name, variant.name);
             let d = mk_lldecl(abi::Rust);
             attributes::inline(d, attributes::InlineAttr::Hint);
-            match v.node.kind {
-                ast::TupleVariantKind(ref args) => {
-                    trans_enum_variant(ccx,
-                                       parent,
-                                       &*v,
-                                       &args[..],
-                                       this_tv.disr_val,
-                                       psubsts,
-                                       d);
-                }
-                ast::StructVariantKind(_) =>
-                    ccx.sess().bug("can't monomorphize struct variants"),
-            }
+            trans_enum_variant(ccx, fn_id.node, variant.disr_val, psubsts, d);
             d
         }
         ast_map::NodeImplItem(impl_item) => {
@@ -255,7 +242,6 @@ pub fn monomorphic_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
             let d = mk_lldecl(abi::Rust);
             attributes::inline(d, attributes::InlineAttr::Hint);
             base::trans_tuple_struct(ccx,
-                                     &struct_def.fields,
                                      struct_def.ctor_id.expect("ast-mapped tuple struct \
                                                                 didn't have a ctor id"),
                                      psubsts,
@@ -300,6 +286,16 @@ pub fn apply_param_substs<'tcx,T>(tcx: &ty::ctxt<'tcx>,
 {
     let substituted = value.subst(tcx, param_substs);
     normalize_associated_type(tcx, &substituted)
+}
+
+
+/// Returns the normalized type of a struct field
+pub fn field_ty<'tcx>(tcx: &ty::ctxt<'tcx>,
+                      param_substs: &Substs<'tcx>,
+                      f: &ty::FieldDef<'tcx>)
+                      -> Ty<'tcx>
+{
+    normalize_associated_type(tcx, &f.ty(tcx, param_substs))
 }
 
 /// Removes associated types, if any. Since this during

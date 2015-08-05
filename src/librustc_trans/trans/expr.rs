@@ -1360,18 +1360,6 @@ pub fn trans_local_var<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     }
 }
 
-/// Helper for enumerating the field types of structs, enums, or records. The optional node ID here
-/// is the node ID of the path identifying the enum variant in use. If none, this cannot possibly
-/// an enum variant (so, if it is and `node_id_opt` is none, this function panics).
-pub fn type_variant<'tcx, R, F>(tcx: &ty::ctxt<'tcx>,
-                                ty: Ty<'tcx>,
-                                  node_id_opt: Option<ast::NodeId>,
-                                  op: F)
-                                  -> R where
-    F: FnOnce(ty::Disr, &[(ast::Name, Ty<'tcx>)]) -> R,
-{
-}
-
 fn trans_struct<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                             fields: &[ast::Field],
                             base: Option<&ast::Expr>,

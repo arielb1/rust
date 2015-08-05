@@ -28,7 +28,7 @@ use middle::pat_util;
 use middle::subst::{self, Substs};
 use rustc::ast_map;
 use trans::{type_of, adt, machine, monomorphize};
-use trans::common::{self, CrateContext, FunctionContext, Block};
+use trans::common::{self, CrateContext, FunctionContext, Block, Field};
 use trans::_match::{BindingInfo, TransBindingMode};
 use trans::type_::Type;
 use middle::ty::{self, Ty};
@@ -1096,7 +1096,7 @@ impl<'tcx> MemberDescriptionFactory<'tcx> {
 
 // Creates MemberDescriptions for the fields of a struct
 struct StructMemberDescriptionFactory<'tcx> {
-    fields: Vec<ty::Field<'tcx>>,
+    fields: Vec<Field<'tcx>>,
     is_simd: bool,
     span: Span,
 }
@@ -1109,29 +1109,32 @@ impl<'tcx> StructMemberDescriptionFactory<'tcx> {
         }
 
         let field_size = if self.is_simd {
-            machine::llsize_of_alloc(cx, type_of::type_of(cx, self.fields[0].mt.ty)) as usize
+            Some(machine::llsize_of_alloc(
+                cx,
+                type_of::type_of(cx, self.fields[0].1)
+            ) as usize)
         } else {
-            0xdeadbeef
+            None
         };
 
-        self.fields.iter().enumerate().map(|(i, field)| {
-            let name = if field.name == special_idents::unnamed_field.name {
-                format!("__{}", i)
+        self.fields.iter().enumerate().map(|(i, &Field(name, fty))| {
+            let name = name.to_string();
+            let name = if name.chars().all(|s| s.is_digit(10)) {
+                format!("__{}", name)
             } else {
-                field.name.to_string()
+                name.to_string()
             };
 
             let offset = if self.is_simd {
-                assert!(field_size != 0xdeadbeef);
-                FixedMemberOffset { bytes: i * field_size }
+                FixedMemberOffset { bytes: i * field_size.unwrap() }
             } else {
                 ComputedMemberOffset
             };
 
             MemberDescription {
                 name: name,
-                llvm_type: type_of::type_of(cx, field.mt.ty),
-                type_metadata: type_metadata(cx, field.mt.ty, self.span),
+                llvm_type: type_of::type_of(cx, fty),
+                type_metadata: type_metadata(cx, fty, self.span),
                 offset: offset,
                 flags: FLAGS_NONE,
             }
@@ -1158,14 +1161,7 @@ fn prepare_struct_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                                                   unique_type_id,
                                                   containing_scope);
 
-    let mut fields = cx.tcx().struct_fields(def_id, substs);
-
-    // The `Ty` values returned by `ty::struct_fields` can still contain
-    // `TyProjection` variants, so normalize those away.
-    for field in &mut fields {
-        field.mt.ty = monomorphize::normalize_associated_type(cx.tcx(), &field.mt.ty);
-    }
-
+    let vinfo = common::VariantInfo::from_ty(cx.tcx(), struct_type, None);
     create_and_register_recursive_type_forward_declaration(
         cx,
         struct_type,
@@ -1173,7 +1169,7 @@ fn prepare_struct_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         struct_metadata_stub,
         struct_llvm_type,
         StructMDF(StructMemberDescriptionFactory {
-            fields: fields,
+            fields: vinfo.fields,
             is_simd: struct_type.is_simd(cx.tcx()),
             span: span,
         })
@@ -1248,7 +1244,6 @@ fn prepare_tuple_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
 struct EnumMemberDescriptionFactory<'tcx> {
     enum_type: Ty<'tcx>,
     type_rep: Rc<adt::Repr<'tcx>>,
-    variants: Rc<Vec<Rc<ty::VariantInfo<'tcx>>>>,
     discriminant_type_metadata: Option<DIType>,
     containing_scope: DIScope,
     file_metadata: DIFile,
@@ -1258,11 +1253,11 @@ struct EnumMemberDescriptionFactory<'tcx> {
 impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
     fn create_member_descriptions<'a>(&self, cx: &CrateContext<'a, 'tcx>)
                                       -> Vec<MemberDescription> {
+        let adt = &self.enum_type.ty_adt_def().unwrap();
         match *self.type_rep {
             adt::General(_, ref struct_defs, _) => {
                 let discriminant_info = RegularDiscriminant(self.discriminant_type_metadata
                     .expect(""));
-
                 struct_defs
                     .iter()
                     .enumerate()
@@ -1273,7 +1268,7 @@ impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
                             describe_enum_variant(cx,
                                                   self.enum_type,
                                                   struct_def,
-                                                  &*self.variants[i],
+                                                  &adt.variants[i],
                                                   discriminant_info,
                                                   self.containing_scope,
                                                   self.span);
@@ -1295,9 +1290,9 @@ impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
                     }).collect()
             },
             adt::Univariant(ref struct_def, _) => {
-                assert!(self.variants.len() <= 1);
+                assert!(adt.variants.len() <= 1);
 
-                if self.variants.is_empty() {
+                if adt.variants.is_empty() {
                     vec![]
                 } else {
                     let (variant_type_metadata,
@@ -1306,7 +1301,7 @@ impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
                         describe_enum_variant(cx,
                                               self.enum_type,
                                               struct_def,
-                                              &*self.variants[0],
+                                              &adt.variants[0],
                                               NoDiscriminant,
                                               self.containing_scope,
                                               self.span);
@@ -1335,7 +1330,7 @@ impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
                 // DWARF representation of enums uniform.
 
                 // First create a description of the artificial wrapper struct:
-                let non_null_variant = &self.variants[non_null_variant_index as usize];
+                let non_null_variant = &adt.variants[non_null_variant_index as usize];
                 let non_null_variant_name = non_null_variant.name.as_str();
 
                 // The llvm type and metadata of the pointer
@@ -1350,9 +1345,12 @@ impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
                 // For the metadata of the wrapper struct, we need to create a
                 // MemberDescription of the struct's single field.
                 let sole_struct_member_description = MemberDescription {
-                    name: match non_null_variant.arg_names {
-                        Some(ref names) => names[0].to_string(),
-                        None => "__0".to_string()
+                    name: match non_null_variant.kind() {
+                        ty::VariantKind::Tuple => "__0".to_string(),
+                        ty::VariantKind::Dict => {
+                            non_null_variant.fields[0].name.to_string()
+                        }
+                        ty::VariantKind::Unit => unreachable!()
                     },
                     llvm_type: non_null_llvm_type,
                     type_metadata: non_null_type_metadata,
@@ -1381,7 +1379,7 @@ impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
                 // Encode the information about the null variant in the union
                 // member's name.
                 let null_variant_index = (1 - non_null_variant_index) as usize;
-                let null_variant_name = self.variants[null_variant_index].name;
+                let null_variant_name = adt.variants[null_variant_index].name;
                 let union_member_name = format!("RUST$ENCODED$ENUM${}${}",
                                                 0,
                                                 null_variant_name);
@@ -1406,7 +1404,7 @@ impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
                     describe_enum_variant(cx,
                                           self.enum_type,
                                           struct_def,
-                                          &*self.variants[nndiscr as usize],
+                                          &adt.variants[nndiscr as usize],
                                           OptimizedDiscriminant,
                                           self.containing_scope,
                                           self.span);
@@ -1422,7 +1420,7 @@ impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
                 // Encode the information about the null variant in the union
                 // member's name.
                 let null_variant_index = (1 - nndiscr) as usize;
-                let null_variant_name = self.variants[null_variant_index].name;
+                let null_variant_name = adt.variants[null_variant_index].name;
                 let discrfield = discrfield.iter()
                                            .skip(1)
                                            .map(|x| x.to_string())
@@ -1486,7 +1484,7 @@ enum EnumDiscriminantInfo {
 fn describe_enum_variant<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                                    enum_type: Ty<'tcx>,
                                    struct_def: &adt::Struct<'tcx>,
-                                   variant_info: &ty::VariantInfo<'tcx>,
+                                   variant_info: &ty::VariantDef<'tcx>,
                                    discriminant_info: EnumDiscriminantInfo,
                                    containing_scope: DIScope,
                                    span: Span)
@@ -1515,17 +1513,19 @@ fn describe_enum_variant<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                                            containing_scope);
 
     // Get the argument names from the enum variant info
-    let mut arg_names: Vec<_> = match variant_info.arg_names {
-        Some(ref names) => {
-            names.iter()
-                 .map(|name| name.to_string())
-                 .collect()
-        }
-        None => {
-            variant_info.args
+    let mut arg_names: Vec<_> = match variant_info.kind() {
+        ty::VariantKind::Unit => vec![],
+        ty::VariantKind::Tuple => {
+            variant_info.fields
                         .iter()
                         .enumerate()
                         .map(|(i, _)| format!("__{}", i))
+                        .collect()
+        }
+        ty::VariantKind::Dict => {
+            variant_info.fields
+                        .iter()
+                        .map(|f| f.name.to_string())
                         .collect()
         }
     };
@@ -1569,7 +1569,7 @@ fn prepare_enum_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
     let loc = span_start(cx, definition_span);
     let file_metadata = file_metadata(cx, &loc.file.name);
 
-    let variants = cx.tcx().enum_variants(enum_def_id);
+    let variants = &enum_type.ty_adt_def().unwrap().variants;
 
     let enumerators_metadata: Vec<DIDescriptor> = variants
         .iter()
@@ -1671,7 +1671,6 @@ fn prepare_enum_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         EnumMDF(EnumMemberDescriptionFactory {
             enum_type: enum_type,
             type_rep: type_rep.clone(),
-            variants: variants,
             discriminant_type_metadata: discriminant_type_metadata,
             containing_scope: containing_scope,
             file_metadata: file_metadata,
