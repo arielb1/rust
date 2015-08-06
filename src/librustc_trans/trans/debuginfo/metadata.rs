@@ -28,8 +28,9 @@ use middle::pat_util;
 use middle::subst::{self, Substs};
 use rustc::ast_map;
 use trans::{type_of, adt, machine};
-use trans::common::{self, CrateContext, FunctionContext, Block, Field};
+use trans::common::{self, CrateContext, FunctionContext, Block};
 use trans::_match::{BindingInfo, TransBindingMode};
+use trans::monomorphize;
 use trans::type_::Type;
 use middle::ty::{self, Ty};
 use session::config::{self, FullDebugInfo};
@@ -1094,7 +1095,8 @@ impl<'tcx> MemberDescriptionFactory<'tcx> {
 
 // Creates MemberDescriptions for the fields of a struct
 struct StructMemberDescriptionFactory<'tcx> {
-    fields: Vec<Field<'tcx>>,
+    variant: &'tcx ty::VariantDef<'tcx>,
+    substs: &'tcx subst::Substs<'tcx>,
     is_simd: bool,
     span: Span,
 }
@@ -1102,26 +1104,29 @@ struct StructMemberDescriptionFactory<'tcx> {
 impl<'tcx> StructMemberDescriptionFactory<'tcx> {
     fn create_member_descriptions<'a>(&self, cx: &CrateContext<'a, 'tcx>)
                                       -> Vec<MemberDescription> {
-        if self.fields.is_empty() {
+        if let ty::VariantKind::Unit = self.variant.kind() {
             return Vec::new();
         }
 
         let field_size = if self.is_simd {
+            let fty = monomorphize::field_ty(cx.tcx(),
+                                             self.substs,
+                                             &self.variant.fields[0]);
             Some(machine::llsize_of_alloc(
                 cx,
-                type_of::type_of(cx, self.fields[0].1)
+                type_of::type_of(cx, fty)
             ) as usize)
         } else {
             None
         };
 
-        self.fields.iter().enumerate().map(|(i, &Field(name, fty))| {
-            let name = name.to_string();
-            let name = if name.chars().all(|s| s.is_digit(10)) {
-                format!("__{}", name)
+        self.variant.fields.iter().enumerate().map(|(i, f)| {
+            let name = if let ty::VariantKind::Tuple = self.variant.kind() {
+                format!("__{}", i)
             } else {
-                name.to_string()
+                f.name.to_string()
             };
+            let fty = monomorphize::field_ty(cx.tcx(), self.substs, f);
 
             let offset = if self.is_simd {
                 FixedMemberOffset { bytes: i * field_size.unwrap() }
@@ -1146,11 +1151,15 @@ fn prepare_struct_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                                      unique_type_id: UniqueTypeId,
                                      span: Span)
                                      -> RecursiveTypeDescription<'tcx> {
-    let def_id = struct_type.ty_to_def_id().unwrap();
     let struct_name = compute_debuginfo_type_name(cx, struct_type, false);
     let struct_llvm_type = type_of::in_memory_type_of(cx, struct_type);
 
-    let (containing_scope, _) = get_namespace_and_span_for_item(cx, def_id);
+    let (variant, substs) = match struct_type.sty {
+        ty::TyStruct(def, substs) => (def.struct_variant(), substs),
+        _ => cx.tcx().sess.bug("prepare_struct_metadata on a non-struct")
+    };
+
+    let (containing_scope, _) = get_namespace_and_span_for_item(cx, variant.did);
 
     let struct_metadata_stub = create_struct_stub(cx,
                                                   struct_llvm_type,
@@ -1158,7 +1167,6 @@ fn prepare_struct_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                                                   unique_type_id,
                                                   containing_scope);
 
-    let vinfo = common::VariantInfo::from_ty(cx.tcx(), struct_type, None);
     create_and_register_recursive_type_forward_declaration(
         cx,
         struct_type,
@@ -1166,7 +1174,8 @@ fn prepare_struct_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         struct_metadata_stub,
         struct_llvm_type,
         StructMDF(StructMemberDescriptionFactory {
-            fields: vinfo.fields,
+            variant: variant,
+            substs: substs,
             is_simd: struct_type.is_simd(cx.tcx()),
             span: span,
         })
@@ -1481,7 +1490,7 @@ enum EnumDiscriminantInfo {
 fn describe_enum_variant<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                                    enum_type: Ty<'tcx>,
                                    struct_def: &adt::Struct<'tcx>,
-                                   variant_info: &ty::VariantDef<'tcx>,
+                                   variant: &ty::VariantDef<'tcx>,
                                    discriminant_info: EnumDiscriminantInfo,
                                    containing_scope: DIScope,
                                    span: Span)
@@ -1495,7 +1504,7 @@ fn describe_enum_variant<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                       struct_def.packed);
     // Could do some consistency checks here: size, align, field count, discr type
 
-    let variant_name = variant_info.name.as_str();
+    let variant_name = variant.name.as_str();
     let unique_type_id = debug_context(cx).type_map
                                           .borrow_mut()
                                           .get_unique_type_id_of_enum_variant(
@@ -1510,20 +1519,20 @@ fn describe_enum_variant<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                                            containing_scope);
 
     // Get the argument names from the enum variant info
-    let mut arg_names: Vec<_> = match variant_info.kind() {
+    let mut arg_names: Vec<_> = match variant.kind() {
         ty::VariantKind::Unit => vec![],
         ty::VariantKind::Tuple => {
-            variant_info.fields
-                        .iter()
-                        .enumerate()
-                        .map(|(i, _)| format!("__{}", i))
-                        .collect()
+            variant.fields
+                   .iter()
+                   .enumerate()
+                   .map(|(i, _)| format!("__{}", i))
+                   .collect()
         }
         ty::VariantKind::Dict => {
-            variant_info.fields
-                        .iter()
-                        .map(|f| f.name.to_string())
-                        .collect()
+            variant.fields
+                   .iter()
+                   .map(|f| f.name.to_string())
+                   .collect()
         }
     };
 
