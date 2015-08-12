@@ -79,7 +79,7 @@ fn push_subtypes<'tcx>(stack: &mut Vec<Ty<'tcx>>, parent_ty: Ty<'tcx>) {
             stack.push(mt.ty);
         }
         ty::TyProjection(ref data) => {
-            push_reversed(stack, data.trait_ref.substs.types.as_slice());
+            push_reversed(stack, data.trait_ref.substs.types().as_slice());
         }
         ty::TyTrait(box ty::TraitTy { ref principal, ref bounds }) => {
             push_reversed(stack, principal.substs().types.as_slice());
@@ -89,10 +89,10 @@ fn push_subtypes<'tcx>(stack: &mut Vec<Ty<'tcx>>, parent_ty: Ty<'tcx>) {
         }
         ty::TyEnum(_, ref substs) |
         ty::TyStruct(_, ref substs) => {
-            push_reversed(stack, substs.types.as_slice());
+            push_reversed(stack, substs.types().as_slice());
         }
         ty::TyClosure(_, ref substs) => {
-            push_reversed(stack, substs.func_substs.types.as_slice());
+            push_reversed(stack, substs.func_substs.types().as_slice());
             push_reversed(stack, &substs.upvar_tys);
         }
         ty::TyTuple(ref ts) => {

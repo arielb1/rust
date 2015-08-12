@@ -1851,7 +1851,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
 
             // for `PhantomData<T>`, we pass `T`
             ty::TyStruct(def, substs) if def.is_phantom_data() => {
-                substs.types.get_slice(TypeSpace).to_vec()
+                substs.types().get_slice(TypeSpace).to_vec()
             }
 
             ty::TyStruct(def, substs) | ty::TyEnum(def, substs) => {
@@ -2127,7 +2127,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         match self_ty.sty {
             ty::TyTrait(ref data) => {
                 // OK to skip the binder, it is reintroduced below
-                let input_types = data.principal.skip_binder().substs.types.get_slice(TypeSpace);
+                let input_types = data.principal.skip_binder().substs.types().get_slice(TypeSpace);
                 let assoc_types = data.bounds.projection_bounds
                                              .iter()
                                              .map(|pb| pb.skip_binder().ty);
@@ -2170,7 +2170,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             Ok(self.impl_or_trait_obligations(obligation.cause.clone(),
                                               obligation.recursion_depth + 1,
                                               trait_def_id,
-                                              &trait_ref.substs,
+                                              trait_ref.substs.inner_substs(),
                                               skol_map,
                                               snapshot))
         });

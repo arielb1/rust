@@ -99,6 +99,24 @@ pub trait TypeFolder<'tcx> : Sized {
         super_fold_substs(self, substs)
     }
 
+    fn fold_interned_substs(&mut self,
+                            substs: subst::InternedSubsts<'tcx>)
+                            -> subst::InternedSubsts<'tcx>
+    {
+        // FIXME: more efficiency!
+        let res = self.fold_substs(substs.inner_substs());
+        // TODO: remove FASTPATH/SLOWPATH
+        if res == substs {
+            // avoid pointless interner lookup if nothing
+            // happened.
+            debug!("fold_interned_substs: FASTPATH");
+            substs
+        } else {
+            debug!("fold_interned_substs: SLOWPATH");
+            self.tcx().mk_substs(res)
+        }
+    }
+
     fn fold_fn_sig(&mut self,
                    sig: &ty::FnSig<'tcx>)
                    -> ty::FnSig<'tcx> {
@@ -287,11 +305,16 @@ impl<'tcx> TypeFoldable<'tcx> for subst::Substs<'tcx> {
     }
 }
 
+impl<'tcx> TypeFoldable<'tcx> for subst::InternedSubsts<'tcx> {
+    fn fold_with<F: TypeFolder<'tcx>>(&self, folder: &mut F) -> subst::InternedSubsts<'tcx> {
+        folder.fold_interned_substs(*self)
+    }
+}
+
 impl<'tcx> TypeFoldable<'tcx> for ty::ClosureSubsts<'tcx> {
     fn fold_with<F: TypeFolder<'tcx>>(&self, folder: &mut F) -> ty::ClosureSubsts<'tcx> {
-        let func_substs = self.func_substs.fold_with(folder);
         ty::ClosureSubsts {
-            func_substs: folder.tcx().mk_substs(func_substs),
+            func_substs: self.func_substs.fold_with(folder),
             upvar_tys: self.upvar_tys.fold_with(folder),
         }
     }
@@ -580,8 +603,7 @@ pub fn super_fold_ty<'tcx, T: TypeFolder<'tcx>>(this: &mut T,
             ty::TySlice(typ.fold_with(this))
         }
         ty::TyEnum(tid, ref substs) => {
-            let substs = substs.fold_with(this);
-            ty::TyEnum(tid, this.tcx().mk_substs(substs))
+            ty::TyEnum(tid, substs.fold_with(this))
         }
         ty::TyTrait(box ty::TraitTy { ref principal, ref bounds }) => {
             ty::TyTrait(box ty::TraitTy {
@@ -601,8 +623,7 @@ pub fn super_fold_ty<'tcx, T: TypeFolder<'tcx>>(this: &mut T,
             ty::TyRef(this.tcx().mk_region(r), tm.fold_with(this))
         }
         ty::TyStruct(did, ref substs) => {
-            let substs = substs.fold_with(this);
-            ty::TyStruct(did, this.tcx().mk_substs(substs))
+            ty::TyStruct(did, substs.fold_with(this))
         }
         ty::TyClosure(did, ref substs) => {
             let s = substs.fold_with(this);
@@ -679,10 +700,9 @@ pub fn super_fold_trait_ref<'tcx, T: TypeFolder<'tcx>>(this: &mut T,
                                                        t: &ty::TraitRef<'tcx>)
                                                        -> ty::TraitRef<'tcx>
 {
-    let substs = t.substs.fold_with(this);
     ty::TraitRef {
         def_id: t.def_id,
-        substs: this.tcx().mk_substs(substs),
+        substs: t.substs.fold_with(this)
     }
 }
 

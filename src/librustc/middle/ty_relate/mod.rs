@@ -14,6 +14,7 @@
 //! type equality, etc.
 
 use middle::subst::{ErasedRegions, NonerasedRegions, ParamSpace, Substs};
+use middle::subst::InternedSubsts;
 use middle::ty::{self, Ty, TypeError};
 use middle::ty_fold::TypeFoldable;
 use std::rc::Rc;
@@ -118,8 +119,8 @@ impl<'a,'tcx:'a> Relate<'a,'tcx> for ty::TypeAndMut<'tcx> {
 // like traits etc.
 fn relate_item_substs<'a,'tcx:'a,R>(relation: &mut R,
                                     item_def_id: ast::DefId,
-                                    a_subst: &Substs<'tcx>,
-                                    b_subst: &Substs<'tcx>)
+                                    a_subst: InternedSubsts<'tcx>,
+                                    b_subst: InternedSubsts<'tcx>)
                                     -> RelateResult<'tcx, Substs<'tcx>>
     where R: TypeRelation<'a,'tcx>
 {
@@ -140,22 +141,22 @@ fn relate_item_substs<'a,'tcx:'a,R>(relation: &mut R,
 
 fn relate_substs<'a,'tcx:'a,R>(relation: &mut R,
                                variances: Option<&ty::ItemVariances>,
-                               a_subst: &Substs<'tcx>,
-                               b_subst: &Substs<'tcx>)
+                               a_subst: InternedSubsts<'tcx>,
+                               b_subst: InternedSubsts<'tcx>)
                                -> RelateResult<'tcx, Substs<'tcx>>
     where R: TypeRelation<'a,'tcx>
 {
     let mut substs = Substs::empty();
 
     for &space in &ParamSpace::all() {
-        let a_tps = a_subst.types.get_slice(space);
-        let b_tps = b_subst.types.get_slice(space);
+        let a_tps = a_subst.types().get_slice(space);
+        let b_tps = b_subst.types().get_slice(space);
         let t_variances = variances.map(|v| v.types.get_slice(space));
         let tps = try!(relate_type_params(relation, t_variances, a_tps, b_tps));
         substs.types.replace(space, tps);
     }
 
-    match (&a_subst.regions, &b_subst.regions) {
+    match (a_subst.regions(), b_subst.regions()) {
         (&ErasedRegions, _) | (_, &ErasedRegions) => {
             substs.regions = ErasedRegions;
         }

@@ -87,7 +87,7 @@ pub fn enc_ty<'a, 'tcx>(w: &mut Encoder, cx: &ctxt<'a, 'tcx>, t: Ty<'tcx>) {
         }
         ty::TyEnum(def, substs) => {
             mywrite!(w, "t[{}|", (cx.ds)(def.did));
-            enc_substs(w, cx, substs);
+            enc_interned_substs(w, cx, substs);
             mywrite!(w, "]");
         }
         ty::TyTrait(box ty::TraitTy { ref principal,
@@ -139,12 +139,12 @@ pub fn enc_ty<'a, 'tcx>(w: &mut Encoder, cx: &ctxt<'a, 'tcx>, t: Ty<'tcx>) {
         }
         ty::TyStruct(def, substs) => {
             mywrite!(w, "a[{}|", (cx.ds)(def.did));
-            enc_substs(w, cx, substs);
+            enc_interned_substs(w, cx, substs);
             mywrite!(w, "]");
         }
         ty::TyClosure(def, ref substs) => {
             mywrite!(w, "k[{}|", (cx.ds)(def));
-            enc_substs(w, cx, &substs.func_substs);
+            enc_interned_substs(w, cx, substs.func_substs);
             for ty in &substs.upvar_tys {
                 enc_ty(w, cx, ty);
             }
@@ -216,6 +216,13 @@ fn enc_vec_per_param_space<'a, 'tcx, T, F>(w: &mut Encoder,
         }
         mywrite!(w, "]");
     }
+}
+
+pub fn enc_interned_substs<'a, 'tcx>(w: &mut Encoder, cx: &ctxt<'a, 'tcx>,
+                                     substs: subst::InternedSubsts<'tcx>) {
+    enc_region_substs(w, cx, substs.regions());
+    enc_vec_per_param_space(w, cx, substs.types(),
+                            |w, cx, &ty| enc_ty(w, cx, ty));
 }
 
 pub fn enc_substs<'a, 'tcx>(w: &mut Encoder, cx: &ctxt<'a, 'tcx>,
@@ -315,7 +322,7 @@ fn enc_bound_region(w: &mut Encoder, cx: &ctxt, br: ty::BoundRegion) {
 pub fn enc_trait_ref<'a, 'tcx>(w: &mut Encoder, cx: &ctxt<'a, 'tcx>,
                                s: ty::TraitRef<'tcx>) {
     mywrite!(w, "{}|", (cx.ds)(s.def_id));
-    enc_substs(w, cx, s.substs);
+    enc_interned_substs(w, cx, s.substs);
 }
 
 fn enc_unsafety(w: &mut Encoder, p: ast::Unsafety) {

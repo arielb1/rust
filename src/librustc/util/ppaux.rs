@@ -9,7 +9,7 @@
 // except according to those terms.
 
 
-use middle::subst::{self, Subst};
+use middle::subst::{self, Subst, InternedSubsts};
 use middle::ty::{BoundRegion, BrAnon, BrNamed};
 use middle::ty::{ReEarlyBound, BrFresh, ctxt};
 use middle::ty::{ReFree, ReScope, ReInfer, ReStatic, Region, ReEmpty};
@@ -63,7 +63,7 @@ fn fn_sig(f: &mut fmt::Formatter,
 }
 
 fn parameterized<GG>(f: &mut fmt::Formatter,
-                     substs: &subst::Substs,
+                     substs: InternedSubsts,
                      did: ast::DefId,
                      projections: &[ty::ProjectionPredicate],
                      get_generics: GG)
@@ -86,19 +86,19 @@ fn parameterized<GG>(f: &mut fmt::Formatter,
     };
 
     if verbose {
-        match substs.regions {
-            subst::ErasedRegions => {
+        match substs.regions() {
+            &subst::ErasedRegions => {
                 try!(start_or_continue(f, "<", ", "));
                 try!(write!(f, ".."));
             }
-            subst::NonerasedRegions(ref regions) => {
+            &subst::NonerasedRegions(ref regions) => {
                 for region in regions {
                     try!(start_or_continue(f, "<", ", "));
                     try!(write!(f, "{:?}", region));
                 }
             }
         }
-        for &ty in &substs.types {
+        for &ty in substs.types() {
             try!(start_or_continue(f, "<", ", "));
             try!(write!(f, "{}", ty));
         }
@@ -113,14 +113,14 @@ fn parameterized<GG>(f: &mut fmt::Formatter,
 
     if fn_trait_kind.is_some() && projections.len() == 1 {
         let projection_ty = projections[0].ty;
-        if let TyTuple(ref args) = substs.types.get_slice(subst::TypeSpace)[0].sty {
+        if let TyTuple(ref args) = substs.types().get_slice(subst::TypeSpace)[0].sty {
             return fn_sig(f, args, false, ty::FnConverging(projection_ty));
         }
     }
 
-    match substs.regions {
-        subst::ErasedRegions => { }
-        subst::NonerasedRegions(ref regions) => {
+    match substs.regions() {
+        &subst::ErasedRegions => { }
+        &subst::NonerasedRegions(ref regions) => {
             for &r in regions {
                 try!(start_or_continue(f, "<", ", "));
                 let s = r.to_string();
@@ -143,7 +143,7 @@ fn parameterized<GG>(f: &mut fmt::Formatter,
     // ICEs trying to fetch the generics early in the pipeline. This
     // is kind of a hacky workaround in that -Z verbose is required to
     // avoid those ICEs.
-    let tps = substs.types.get_slice(subst::TypeSpace);
+    let tps = substs.types().get_slice(subst::TypeSpace);
     let num_defaults = ty::tls::with(|tcx| {
         let generics = get_generics(tcx);
 
@@ -329,6 +329,12 @@ impl<'tcx> fmt::Debug for subst::Substs<'tcx> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Substs[types={:?}, regions={:?}]",
                self.types, self.regions)
+    }
+}
+
+impl<'tcx> fmt::Debug for subst::InternedSubsts<'tcx> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.inner_substs().fmt(f)
     }
 }
 

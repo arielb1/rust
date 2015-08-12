@@ -11,7 +11,7 @@
 // #![warn(deprecated_mode)]
 
 use middle::infer::{InferCtxt, GenericKind};
-use middle::subst::Substs;
+use middle::subst::{Substs, InternedSubsts};
 use middle::traits;
 use middle::ty::{self, RegionEscape, ToPolyTraitRef, ToPredicate, Ty};
 use middle::ty_fold::{TypeFoldable, TypeFolder};
@@ -267,7 +267,7 @@ impl<'a, 'tcx> Implicator<'a, 'tcx> {
                            ty: Ty<'tcx>,
                            def_id: ast::DefId,
                            _generics: &ty::Generics<'tcx>,
-                           substs: &Substs<'tcx>)
+                           substs: InternedSubsts<'tcx>)
     {
         let predicates =
             self.tcx().lookup_predicates(def_id).instantiate(self.tcx(), substs);
@@ -310,7 +310,7 @@ impl<'a, 'tcx> Implicator<'a, 'tcx> {
         self.out.extend(obligations);
 
         let variances = self.tcx().item_variances(def_id);
-        self.accumulate_from_substs(substs, Some(&variances));
+        self.accumulate_from_substs(substs.inner_substs(), Some(&variances));
     }
 
     fn accumulate_from_substs(&mut self,

@@ -615,7 +615,7 @@ fn encode_method_callee<'a, 'tcx>(ecx: &e::EncodeContext<'a, 'tcx>,
             Ok(rbml_w.emit_ty(ecx, method.ty))
         });
         rbml_w.emit_struct_field("substs", 3, |rbml_w| {
-            Ok(rbml_w.emit_substs(ecx, &method.substs))
+            Ok(rbml_w.emit_interned_substs(ecx, method.substs))
         })
     }).unwrap();
 }
@@ -713,6 +713,8 @@ trait rbml_writer_helpers<'tcx> {
                             type_scheme: ty::TypeScheme<'tcx>);
     fn emit_substs<'a>(&mut self, ecx: &e::EncodeContext<'a, 'tcx>,
                        substs: &subst::Substs<'tcx>);
+    fn emit_interned_substs<'a>(&mut self, ecx: &e::EncodeContext<'a, 'tcx>,
+                                substs: subst::InternedSubsts<'tcx>);
     fn emit_existential_bounds<'b>(&mut self, ecx: &e::EncodeContext<'b,'tcx>,
                                    bounds: &ty::ExistentialBounds<'tcx>);
     fn emit_builtin_bounds(&mut self, ecx: &e::EncodeContext, bounds: &ty::BuiltinBounds);
@@ -805,8 +807,15 @@ impl<'a, 'tcx> rbml_writer_helpers<'tcx> for Encoder<'a> {
     fn emit_substs<'b>(&mut self, ecx: &e::EncodeContext<'b, 'tcx>,
                        substs: &subst::Substs<'tcx>) {
         self.emit_opaque(|this| Ok(tyencode::enc_substs(this,
-                                                           &ecx.ty_str_ctxt(),
-                                                           substs)));
+                                                        &ecx.ty_str_ctxt(),
+                                                        substs)));
+    }
+
+    fn emit_interned_substs<'b>(&mut self, ecx: &e::EncodeContext<'b, 'tcx>,
+                       substs: subst::InternedSubsts<'tcx>) {
+        self.emit_opaque(|this| Ok(tyencode::enc_interned_substs(this,
+                                                                 &ecx.ty_str_ctxt(),
+                                                                 substs)));
     }
 
     fn emit_auto_adjustment<'b>(&mut self, ecx: &e::EncodeContext<'b, 'tcx>,

@@ -206,7 +206,7 @@ fn orphan_check_trait_ref<'tcx>(tcx: &ty::ctxt<'tcx>,
     // First, create an ordered iterator over all the type parameters to the trait, with the self
     // type appearing first.
     let input_tys = Some(trait_ref.self_ty());
-    let input_tys = input_tys.iter().chain(trait_ref.substs.types.get_slice(TypeSpace));
+    let input_tys = input_tys.iter().chain(trait_ref.substs.types().get_slice(TypeSpace));
 
     // Find the first input type that either references a type parameter OR
     // some local type.

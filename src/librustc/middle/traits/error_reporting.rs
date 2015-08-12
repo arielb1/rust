@@ -88,7 +88,7 @@ fn report_on_unimplemented<'a, 'tcx>(infcx: &InferCtxt<'a, 'tcx>,
                 let mut generic_map = def.generics.types.iter_enumerated()
                                          .map(|(param, i, gen)| {
                                                (gen.name.as_str().to_string(),
-                                                trait_ref.substs.types.get(param, i)
+                                                trait_ref.substs.types().get(param, i)
                                                          .to_string())
                                               }).collect::<HashMap<String, String>>();
                 generic_map.insert("Self".to_string(),

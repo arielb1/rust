@@ -34,6 +34,62 @@ pub struct Substs<'tcx> {
     pub regions: RegionSubsts,
 }
 
+// TODO: PartialEq/Hash by ptr
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub struct InternedSubsts<'tcx>(&'tcx Substs<'tcx>);
+
+impl<'tcx> InternedSubsts<'tcx> {
+    #[inline]
+    pub fn inner_substs(self) -> &'tcx Substs<'tcx> {
+        self.0
+    }
+
+    #[inline]
+    pub fn types(self) -> &'tcx VecPerParamSpace<Ty<'tcx>> {
+        &self.0.types
+    }
+
+    #[inline]
+    pub fn regions(self) -> &'tcx RegionSubsts {
+        &self.0.regions
+    }
+
+    #[inline]
+    pub fn self_ty(self) -> Option<Ty<'tcx>> {
+        self.0.self_ty()
+    }
+
+    #[inline]
+    pub fn new(interned: &'tcx Substs<'tcx>) -> Self {
+        InternedSubsts(interned)
+    }
+
+    pub fn with_self_ty(self, ty: Ty<'tcx>) -> Substs<'tcx> {
+        self.0.with_self_ty(ty)
+    }
+
+    pub fn copy(&self) -> Substs<'tcx> {
+        self.0.clone()
+    }
+
+    pub fn subst_copy<'a, T>(&self, tcx: &ty::ctxt<'tcx>, s: T) -> Substs<'tcx>
+            where T: Substitutor<'a, 'tcx> {
+        self.0.subst(tcx, s)
+    }
+}
+
+impl<'tcx> PartialEq<InternedSubsts<'tcx>> for Substs<'tcx> {
+    fn eq(&self, other: &InternedSubsts<'tcx>) -> bool {
+        self == other.0
+    }
+}
+
+impl<'tcx> PartialEq<Substs<'tcx>> for InternedSubsts<'tcx> {
+    fn eq(&self, other: &Substs<'tcx>) -> bool {
+        self.0 == other
+    }
+}
+
 /// Represents the values to use when substituting lifetime parameters.
 /// If the value is `ErasedRegions`, then this subst is occurring during
 /// trans, and all region parameters will be replaced with `ty::ReStatic`.
@@ -526,6 +582,18 @@ impl<'a,T> IntoIterator for &'a VecPerParamSpace<T> {
 }
 
 
+pub trait Substitutor<'a, 'tcx: 'a> {
+    fn substs(self) -> &'a Substs<'tcx>;
+}
+
+impl<'a, 'tcx: 'a> Substitutor<'a, 'tcx> for &'a Substs<'tcx> {
+    fn substs(self) -> &'a Substs<'tcx> { self }
+}
+
+impl<'tcx> Substitutor<'tcx, 'tcx> for InternedSubsts<'tcx> {
+    fn substs(self) -> &'tcx Substs<'tcx> { self.0 }
+}
+
 ///////////////////////////////////////////////////////////////////////////
 // Public trait `Subst`
 //
@@ -534,8 +602,8 @@ impl<'a,T> IntoIterator for &'a VecPerParamSpace<T> {
 // there is more information available (for better errors).
 
 pub trait Subst<'tcx> : Sized {
-    fn subst(&self, tcx: &ty::ctxt<'tcx>, substs: &Substs<'tcx>) -> Self {
-        self.subst_spanned(tcx, substs, None)
+    fn subst<'a, T: Substitutor<'a, 'tcx>>(&self, tcx: &ty::ctxt<'tcx>, substs: T) -> Self where 'tcx: 'a {
+        self.subst_spanned(tcx, substs.substs(), None)
     }
 
     fn subst_spanned(&self, tcx: &ty::ctxt<'tcx>,

@@ -1501,7 +1501,7 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
                              .closure_tys
                              .get(&def_id)
                              .unwrap()
-                             .subst(self.tcx, &substs.func_substs);
+                             .subst(self.tcx, substs.func_substs);
 
         if self.normalize {
             normalize_associated_type(&self.tcx, &closure_ty)

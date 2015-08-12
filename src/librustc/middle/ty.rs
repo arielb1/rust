@@ -59,6 +59,7 @@ use middle::pat_util;
 use middle::region::RegionMaps;
 use middle::stability;
 use middle::subst::{self, ParamSpace, Subst, Substs, VecPerParamSpace};
+use middle::subst::InternedSubsts;
 use middle::traits;
 use middle::ty;
 use middle::ty_fold::{self, TypeFoldable, TypeFolder};
@@ -546,7 +547,7 @@ pub struct MethodCallee<'tcx> {
     /// Impl method ID, for inherent methods, or trait method ID, otherwise.
     pub def_id: ast::DefId,
     pub ty: Ty<'tcx>,
-    pub substs: &'tcx subst::Substs<'tcx>
+    pub substs: InternedSubsts<'tcx>
 }
 
 /// With method calls, we store some extra information in
@@ -1028,12 +1029,25 @@ impl<'a, 'tcx> Lift<'tcx> for Ty<'a> {
     }
 }
 
+// TODO: remove?
 impl<'a, 'tcx> Lift<'tcx> for &'a Substs<'a> {
     type Lifted = &'tcx Substs<'tcx>;
     fn lift_to_tcx(&self, tcx: &ctxt<'tcx>) -> Option<&'tcx Substs<'tcx>> {
         if let Some(&substs) = tcx.substs_interner.borrow().get(*self) {
             if *self as *const _ == substs as *const _ {
                 return Some(substs);
+            }
+        }
+        None
+    }
+}
+
+impl<'a, 'tcx> Lift<'tcx> for InternedSubsts<'a> {
+    type Lifted = InternedSubsts<'tcx>;
+    fn lift_to_tcx(&self, tcx: &ctxt<'tcx>) -> Option<InternedSubsts<'tcx>> {
+        if let Some(&substs) = tcx.substs_interner.borrow().get(self.inner_substs()) {
+            if *self as *const _ == substs as *const _ {
+                return Some(InternedSubsts(substs));
             }
         }
         None
@@ -1746,12 +1760,12 @@ pub enum TypeVariants<'tcx> {
     /// from the tcx, use the `NodeId` from the `ast::Ty` and look it up in
     /// the `ast_ty_to_ty_cache`. This is probably true for `TyStruct` as
     /// well.
-    TyEnum(AdtDef<'tcx>, &'tcx Substs<'tcx>),
+    TyEnum(AdtDef<'tcx>, InternedSubsts<'tcx>),
 
     /// A structure type, defined with `struct`.
     ///
     /// See warning about substitutions for enumerated types.
-    TyStruct(AdtDef<'tcx>, &'tcx Substs<'tcx>),
+    TyStruct(AdtDef<'tcx>, InternedSubsts<'tcx>),
 
     /// `Box<T>`; this is nominally a struct in the documentation, but is
     /// special-cased internally. For example, it is possible to implicitly
@@ -1888,7 +1902,7 @@ pub struct ClosureSubsts<'tcx> {
     /// Lifetime and type parameters from the enclosing function.
     /// These are separated out because trans wants to pass them around
     /// when monomorphizing.
-    pub func_substs: &'tcx Substs<'tcx>,
+    pub func_substs: InternedSubsts<'tcx>,
 
     /// The types of the upvars. The list parallels the freevars and
     /// `upvar_borrows` lists. These are kept distinct so that we can
@@ -1970,7 +1984,7 @@ impl<'tcx> TraitTy<'tcx> {
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct TraitRef<'tcx> {
     pub def_id: DefId,
-    pub substs: &'tcx Substs<'tcx>,
+    pub substs: InternedSubsts<'tcx>,
 }
 
 pub type PolyTraitRef<'tcx> = Binder<TraitRef<'tcx>>;
@@ -2373,8 +2387,9 @@ impl<'tcx> GenericPredicates<'tcx> {
         }
     }
 
-    pub fn instantiate(&self, tcx: &ctxt<'tcx>, substs: &Substs<'tcx>)
-                       -> InstantiatedPredicates<'tcx> {
+    pub fn instantiate<'a, T>(&self, tcx: &ctxt<'tcx>, substs: T)
+                       -> InstantiatedPredicates<'tcx>
+            where T: subst::Substitutor<'a, 'tcx> {
         InstantiatedPredicates {
             predicates: self.predicates.subst(tcx, substs),
         }
@@ -2756,7 +2771,7 @@ impl<'tcx> InstantiatedPredicates<'tcx> {
 }
 
 impl<'tcx> TraitRef<'tcx> {
-    pub fn new(def_id: ast::DefId, substs: &'tcx Substs<'tcx>) -> TraitRef<'tcx> {
+    pub fn new(def_id: ast::DefId, substs: InternedSubsts<'tcx>) -> TraitRef<'tcx> {
         TraitRef { def_id: def_id, substs: substs }
     }
 
@@ -3443,7 +3458,8 @@ impl<'tcx, 'container> FieldDefData<'tcx, 'container> {
         }
     }
 
-    pub fn ty(&self, tcx: &ctxt<'tcx>, subst: &Substs<'tcx>) -> Ty<'tcx> {
+    pub fn ty<'a, T>(&self, tcx: &ctxt<'tcx>, subst: T) -> Ty<'tcx>
+            where T: subst::Substitutor<'a, 'tcx> {
         self.unsubst_ty().subst(tcx, subst)
     }
 
@@ -3804,14 +3820,14 @@ impl<'tcx> ctxt<'tcx> {
 
     // Type constructors
 
-    pub fn mk_substs(&self, substs: Substs<'tcx>) -> &'tcx Substs<'tcx> {
+    pub fn mk_substs(&self, substs: Substs<'tcx>) -> InternedSubsts<'tcx> {
         if let Some(substs) = self.substs_interner.borrow().get(&substs) {
             return *substs;
         }
 
         let substs = self.arenas.substs.alloc(substs);
         self.substs_interner.borrow_mut().insert(substs, substs);
-        substs
+        InternedSubsts(substs)
     }
 
     /// Create an unsafe fn ty based on a safe fn ty.
@@ -3941,7 +3957,7 @@ impl<'tcx> ctxt<'tcx> {
         self.mk_imm_ref(self.mk_region(ty::ReStatic), self.mk_str())
     }
 
-    pub fn mk_enum(&self, def: AdtDef<'tcx>, substs: &'tcx Substs<'tcx>) -> Ty<'tcx> {
+    pub fn mk_enum(&self, def: AdtDef<'tcx>, substs: InternedSubsts<'tcx>) -> Ty<'tcx> {
         // take a copy of substs so that we own the vectors inside
         self.mk_ty(TyEnum(def, substs))
     }
@@ -4043,14 +4059,14 @@ impl<'tcx> ctxt<'tcx> {
         self.mk_ty(TyProjection(inner))
     }
 
-    pub fn mk_struct(&self, def: AdtDef<'tcx>, substs: &'tcx Substs<'tcx>) -> Ty<'tcx> {
+    pub fn mk_struct(&self, def: AdtDef<'tcx>, substs: InternedSubsts<'tcx>) -> Ty<'tcx> {
         // take a copy of substs so that we own the vectors inside
         self.mk_ty(TyStruct(def, substs))
     }
 
     pub fn mk_closure(&self,
                       closure_id: ast::DefId,
-                      substs: &'tcx Substs<'tcx>,
+                      substs: InternedSubsts<'tcx>,
                       tys: Vec<Ty<'tcx>>)
                       -> Ty<'tcx> {
         self.mk_closure_from_closure_substs(closure_id, Box::new(ClosureSubsts {
@@ -6852,7 +6868,7 @@ impl<'tcx> ctxt<'tcx> {
                   .iter()
                   .map(|def| def.to_early_bound_region())
                   .collect();
-        trait_ref.substs.clone().with_method(meth_tps, meth_regions)
+        trait_ref.substs.copy().with_method(meth_tps, meth_regions)
     }
 }
 
@@ -6958,6 +6974,13 @@ impl<'tcx> RegionEscape for Substs<'tcx> {
     }
 }
 
+impl<'tcx> RegionEscape for InternedSubsts<'tcx> {
+    fn has_regions_escaping_depth(&self, depth: u32) -> bool {
+        self.types().has_regions_escaping_depth(depth) ||
+            self.regions().has_regions_escaping_depth(depth)
+    }
+}
+
 impl<'tcx> RegionEscape for ClosureSubsts<'tcx> {
     fn has_regions_escaping_depth(&self, depth: u32) -> bool {
         self.func_substs.has_regions_escaping_depth(depth) ||
@@ -7028,8 +7051,8 @@ impl<'tcx,P:RegionEscape> RegionEscape for traits::Obligation<'tcx,P> {
 
 impl<'tcx> RegionEscape for TraitRef<'tcx> {
     fn has_regions_escaping_depth(&self, depth: u32) -> bool {
-        self.substs.types.iter().any(|t| t.has_regions_escaping_depth(depth)) ||
-            self.substs.regions.has_regions_escaping_depth(depth)
+        self.substs.types().iter().any(|t| t.has_regions_escaping_depth(depth)) ||
+            self.substs.regions().has_regions_escaping_depth(depth)
     }
 }
 
@@ -7244,6 +7267,15 @@ impl<'tcx> HasTypeFlags for subst::Substs<'tcx> {
         self.types.has_type_flags(flags) || match self.regions {
             subst::ErasedRegions => false,
             subst::NonerasedRegions(ref r) => r.has_type_flags(flags)
+        }
+    }
+}
+
+impl<'tcx> HasTypeFlags for subst::InternedSubsts<'tcx> {
+    fn has_type_flags(&self, flags: TypeFlags) -> bool {
+        self.types().has_type_flags(flags) || match self.regions() {
+            &subst::ErasedRegions => false,
+            &subst::NonerasedRegions(ref r) => r.has_type_flags(flags)
         }
     }
 }
