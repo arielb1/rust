@@ -488,7 +488,8 @@ impl<'a> CrateReader<'a> {
         }
 
         let registrar = decoder::get_plugin_registrar_fn(ekrate.metadata.as_slice())
-            .map(|id| decoder::get_symbol(ekrate.metadata.as_slice(), id));
+            .map(|id| decoder::get_symbol(ekrate.metadata.as_slice(), id))
+            .map(|s| (*s.as_str()).to_owned());
 
         match (ekrate.dylib.as_ref(), registrar) {
             (Some(dylib), Some(reg)) => Some((dylib.to_path_buf(), reg)),

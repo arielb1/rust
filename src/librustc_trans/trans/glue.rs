@@ -17,7 +17,6 @@ use back::abi;
 use back::link::*;
 use llvm;
 use llvm::{ValueRef, get_param};
-use metadata::csearch;
 use middle::lang_items::ExchangeFreeFnLangItem;
 use middle::subst;
 use middle::subst::{Subst, Substs};
@@ -343,11 +342,11 @@ pub fn get_res_dtor<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
         get_item_val(ccx, did.node)
     } else {
         let tcx = ccx.tcx();
-        let name = csearch::get_symbol(&ccx.sess().cstore, did);
+        let name = ccx.tcx().item_symbol(did);
         let class_ty = tcx.lookup_item_type(parent_id).ty.subst(tcx, substs);
         let llty = type_of_dtor(ccx, class_ty);
-        foreign::get_extern_fn(ccx, &mut *ccx.externs().borrow_mut(), &name[..], llvm::CCallConv,
-                               llty, ccx.tcx().mk_nil())
+        foreign::get_extern_fn(ccx, &mut *ccx.externs().borrow_mut(), &name.as_str(),
+                               llvm::CCallConv, llty, ccx.tcx().mk_nil())
     }
 }
 

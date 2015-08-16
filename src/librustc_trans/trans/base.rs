@@ -187,8 +187,8 @@ fn get_extern_rust_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, fn_ty: Ty<'tcx>,
 
     let f = declare::declare_rust_fn(ccx, name, fn_ty);
 
-    let attrs = csearch::get_item_attrs(&ccx.sess().cstore, did);
-    attributes::from_fn_attrs(ccx, &attrs[..], f);
+    let attrs = ccx.tcx().get_attrs(did);
+    attributes::from_fn_attrs(ccx, &attrs, f);
 
     ccx.externs().borrow_mut().insert(name.to_string(), f);
     f
@@ -217,15 +217,15 @@ pub fn kind_for_closure(ccx: &CrateContext, closure_id: ast::DefId) -> ty::Closu
 
 pub fn get_extern_const<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, did: ast::DefId,
                                   t: Ty<'tcx>) -> ValueRef {
-    let name = csearch::get_symbol(&ccx.sess().cstore, did);
+    let name = ccx.tcx().item_symbol(did).as_str();
     let ty = type_of(ccx, t);
-    match ccx.externs().borrow_mut().get(&name) {
+    match ccx.externs().borrow_mut().get(&*name) {
         Some(n) => return *n,
         None => ()
     }
     // FIXME(nagisa): perhaps the map of externs could be offloaded to llvm somehow?
     // FIXME(nagisa): investigate whether it can be changed into define_global
-    let c = declare::declare_global(ccx, &name[..], ty);
+    let c = declare::declare_global(ccx, &name, ty);
     // Thread-local statics in some other crate need to *always* be linked
     // against in a thread-local fashion, so we need to be sure to apply the
     // thread-local attribute locally if it was present remotely. If we
@@ -667,12 +667,12 @@ pub fn fail_if_zero_or_overflows<'blk, 'tcx>(
 
 pub fn trans_external_path<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                                      did: ast::DefId, t: Ty<'tcx>) -> ValueRef {
-    let name = csearch::get_symbol(&ccx.sess().cstore, did);
+    let name = ccx.tcx().item_symbol(did).as_str();
     match t.sty {
         ty::TyBareFn(_, ref fn_ty) => {
             match ccx.sess().target.target.adjust_abi(fn_ty.abi) {
                 Rust | RustCall => {
-                    get_extern_rust_fn(ccx, t, &name[..], did)
+                    get_extern_rust_fn(ccx, t, &name, did)
                 }
                 RustIntrinsic => {
                     ccx.sess().bug("unexpected intrinsic in trans_external_path")
@@ -680,7 +680,7 @@ pub fn trans_external_path<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                 _ => {
                     let llfn = foreign::register_foreign_item_fn(ccx, fn_ty.abi,
                                                                  t, &name);
-                    let attrs = csearch::get_item_attrs(&ccx.sess().cstore, did);
+                    let attrs = ccx.tcx().get_attrs(did);
                     attributes::from_fn_attrs(ccx, &attrs, llfn);
                     llfn
                 }
@@ -2282,9 +2282,9 @@ fn exported_name<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, id: ast::NodeId,
                            ty: Ty<'tcx>, attrs: &[ast::Attribute]) -> String {
     match ccx.external_srcs().borrow().get(&id) {
         Some(&did) => {
-            let sym = csearch::get_symbol(&ccx.sess().cstore, did);
+            let sym = ccx.tcx().item_symbol(did);
             debug!("found item {} in other crate...", sym);
-            return sym;
+            return (*sym.as_str()).to_owned();
         }
         None => {}
     }
@@ -2801,7 +2801,7 @@ pub fn trans_crate(tcx: &ty::ctxt, analysis: ty::CrateAnalysis) -> CrateTranslat
             reachable_symbols.extend(syms.into_iter().filter(|did| {
                 csearch::is_extern_fn(&sess.cstore, *did, shared_ccx.tcx())
             }).map(|did| {
-                csearch::get_symbol(&sess.cstore, did)
+                (*tcx.item_symbol(did).as_str()).to_owned()
             }));
         });
     }

@@ -28,7 +28,7 @@
 //! Use the former for unit-like structs and the latter for structs with
 //! a `pub fn new()`.
 
-use metadata::{csearch, decoder};
+use metadata::decoder;
 use middle::{cfg, def, infer, pat_util, stability, traits};
 use middle::subst::Substs;
 use middle::ty::{self, Ty};
@@ -996,7 +996,7 @@ impl LintPass for UnusedResults {
                         false
                     }
                 } else {
-                    let attrs = csearch::get_item_attrs(&cx.sess().cstore, def.did);
+                    let attrs = cx.tcx.get_attrs(def.did);
                     check_must_use(cx, &attrs[..], s.span)
                 }
             }

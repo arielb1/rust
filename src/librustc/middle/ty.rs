@@ -68,7 +68,7 @@ use util::nodemap::FnvHashMap;
 use util::num::ToPrimitive;
 
 use arena::TypedArena;
-use std::borrow::{Borrow, Cow};
+use std::borrow::Borrow;
 use std::cell::{Cell, RefCell, Ref};
 use std::cmp;
 use std::fmt;
@@ -638,6 +638,9 @@ pub struct CtxtArenas<'tcx> {
     // references
     trait_defs: TypedArena<TraitDef<'tcx>>,
     adt_defs: TypedArena<AdtDefData<'tcx, 'tcx>>,
+    // TypedArena<ast::Attribute> would be better if we
+    // could suballocate contiguous slices.
+    item_attrs: TypedArena<Box<[ast::Attribute]>>,
 }
 
 impl<'tcx> CtxtArenas<'tcx> {
@@ -650,7 +653,8 @@ impl<'tcx> CtxtArenas<'tcx> {
             stability: TypedArena::new(),
 
             trait_defs: TypedArena::new(),
-            adt_defs: TypedArena::new()
+            adt_defs: TypedArena::new(),
+            item_attrs: TypedArena::new()
         }
     }
 }
@@ -757,6 +761,9 @@ pub struct ctxt<'tcx> {
     /// Maps from a trait item to the trait item "descriptor"
     pub impl_or_trait_items: RefCell<DefIdMap<ImplOrTraitItem<'tcx>>>,
 
+    /// A negative-lookup cache for impl_or_trait_items
+    pub non_impl_or_trait_items: RefCell<DefIdSet>,
+
     /// Maps from a trait def-id to a list of the def-ids of its trait items
     pub trait_item_def_ids: RefCell<DefIdMap<Rc<Vec<ImplOrTraitItemId>>>>,
 
@@ -790,6 +797,12 @@ pub struct ctxt<'tcx> {
     pub lang_items: middle::lang_items::LanguageItems,
     /// A mapping of fake provided method def_ids to the default implementation
     pub provided_method_sources: RefCell<DefIdMap<ast::DefId>>,
+
+    /// A mapping of foreign def-ids to their symbol names
+    pub foreign_symbols: RefCell<DefIdMap<ast::Name>>,
+
+    /// A cache for the attributes of foreign def-ids
+    pub foreign_item_attrs: RefCell<DefIdMap<&'tcx [ast::Attribute]>>,
 
     /// Maps from def-id of a type or region parameter to its
     /// (inferred) variance.
@@ -3817,12 +3830,15 @@ impl<'tcx> ctxt<'tcx> {
             tc_cache: RefCell::new(FnvHashMap()),
             ast_ty_to_ty_cache: RefCell::new(NodeMap()),
             impl_or_trait_items: RefCell::new(DefIdMap()),
+            non_impl_or_trait_items: RefCell::new(DefIdSet()),
             trait_item_def_ids: RefCell::new(DefIdMap()),
             trait_items_cache: RefCell::new(DefIdMap()),
             ty_param_defs: RefCell::new(NodeMap()),
             normalized_cache: RefCell::new(FnvHashMap()),
             lang_items: lang_items,
             provided_method_sources: RefCell::new(DefIdMap()),
+            foreign_symbols: RefCell::new(DefIdMap()),
+            foreign_item_attrs: RefCell::new(DefIdMap()),
             destructor_for_type: RefCell::new(DefIdMap()),
             destructors: RefCell::new(DefIdSet()),
             inherent_impls: RefCell::new(DefIdMap()),
@@ -6004,6 +6020,12 @@ impl<'tcx> ctxt<'tcx> {
         }
     }
 
+    pub fn item_symbol(&self, id: ast::DefId) -> ast::Name {
+        memoized(&self.foreign_symbols, id, |id| {
+            csearch::get_symbol(&self.sess.cstore, id)
+        })
+    }
+
     pub fn with_path<T, F>(&self, id: ast::DefId, f: F) -> T where
         F: FnOnce(ast_map::PathElems) -> T,
     {
@@ -6095,11 +6117,18 @@ impl<'tcx> ctxt<'tcx> {
     }
 
     /// Get the attributes of a definition.
-    pub fn get_attrs(&self, did: DefId) -> Cow<'tcx, [ast::Attribute]> {
+    pub fn get_attrs(&self, did: DefId) -> &'tcx [ast::Attribute] {
         if is_local(did) {
-            Cow::Borrowed(self.map.attrs(did.node))
+            self.map.attrs(did.node)
         } else {
-            Cow::Owned(csearch::get_item_attrs(&self.sess.cstore, did))
+            memoized(&self.foreign_item_attrs, did, |did| {
+                let item_attrs = csearch::get_item_attrs(&self.sess.cstore, did);
+                if item_attrs.len() == 0 {
+                    &[]
+                } else {
+                    self.arenas.item_attrs.alloc(item_attrs.into_boxed_slice())
+                }
+            })
         }
     }
 
@@ -6422,14 +6451,27 @@ impl<'tcx> ctxt<'tcx> {
         }
     }
 
+    pub fn opt_impl_or_trait_item(&self, did: ast::DefId) -> Option<ImplOrTraitItem<'tcx>>
+    {
+        if let Some(trait_item) = self.impl_or_trait_items.borrow().get(&did) {
+            return Some(trait_item.clone());
+        }
+        if ast_util::is_local(did) || self.non_impl_or_trait_items.borrow().contains(&did) {
+            return None;
+        }
+        if !csearch::is_impl_or_trait_item(&self.sess.cstore, did) {
+            self.non_impl_or_trait_items.borrow_mut().insert(did);
+            None
+        } else {
+            Some(self.impl_or_trait_item(did))
+        }
+    }
+
     /// If the given def ID describes an item belonging to a trait (either a
     /// default method or an implementation of a trait method), return the ID of
     /// the trait that the method belongs to. Otherwise, return `None`.
     pub fn trait_of_item(&self, def_id: ast::DefId) -> Option<ast::DefId> {
-        if def_id.krate != LOCAL_CRATE {
-            return csearch::get_trait_of_item(&self.sess.cstore, def_id, self);
-        }
-        match self.impl_or_trait_items.borrow().get(&def_id).cloned() {
+        match self.opt_impl_or_trait_item(def_id) {
             Some(impl_or_trait_item) => {
                 match impl_or_trait_item.container() {
                     TraitContainer(def_id) => Some(def_id),

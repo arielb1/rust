@@ -34,7 +34,7 @@ pub struct MethodInfo {
     pub vis: ast::Visibility,
 }
 
-pub fn get_symbol(cstore: &cstore::CStore, def: ast::DefId) -> String {
+pub fn get_symbol(cstore: &cstore::CStore, def: ast::DefId) -> ast::Name {
     let cdata = cstore.get_crate_data(def.krate);
     decoder::get_symbol(cdata.data(), def.node)
 }
@@ -312,15 +312,12 @@ pub fn each_implementation_for_trait<F>(cstore: &cstore::CStore,
     })
 }
 
-/// If the given def ID describes an item belonging to a trait (either a
-/// default method or an implementation of a trait method), returns the ID of
-/// the trait that the method belongs to. Otherwise, returns `None`.
-pub fn get_trait_of_item(cstore: &cstore::CStore,
-                         def_id: ast::DefId,
-                         tcx: &ty::ctxt)
-                         -> Option<ast::DefId> {
+/// Returns whether a given def ID describes an item belonging to an impl or trait.
+pub fn is_impl_or_trait_item(cstore: &cstore::CStore,
+                             def_id: ast::DefId)
+                             -> bool {
     let cdata = cstore.get_crate_data(def_id.krate);
-    decoder::get_trait_of_item(&*cdata, def_id.node, tcx)
+    decoder::is_impl_or_trait_item(&*cdata, def_id.node)
 }
 
 pub fn get_tuple_struct_definition_if_ctor(cstore: &cstore::CStore,

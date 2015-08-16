@@ -189,8 +189,8 @@ fn item_sort(item: rbml::Doc) -> Option<char> {
     })
 }
 
-fn item_symbol(item: rbml::Doc) -> String {
-    reader::get_doc(item, tag_items_data_item_symbol).as_str().to_string()
+fn item_symbol(item: rbml::Doc) -> ast::Name {
+    token::intern(reader::get_doc(item, tag_items_data_item_symbol).as_str_slice())
 }
 
 fn translated_def_id(cdata: Cmd, d: rbml::Doc) -> ast::DefId {
@@ -598,7 +598,7 @@ pub fn get_impl_trait<'tcx>(cdata: Cmd,
     }
 }
 
-pub fn get_symbol(data: &[u8], id: ast::NodeId) -> String {
+pub fn get_symbol(data: &[u8], id: ast::NodeId) -> ast::Name {
     return item_symbol(lookup_item(id, data));
 }
 
@@ -1327,24 +1327,18 @@ pub fn each_implementation_for_trait<F>(cdata: Cmd,
     }
 }
 
-pub fn get_trait_of_item(cdata: Cmd, id: ast::NodeId, tcx: &ty::ctxt)
-                         -> Option<ast::DefId> {
+pub fn is_impl_or_trait_item(cdata: Cmd, id: ast::NodeId) -> bool {
     let item_doc = lookup_item(id, cdata.data());
     let parent_item_id = match item_parent_item(cdata, item_doc) {
-        None => return None,
+        None => return false,
         Some(item_id) => item_id,
     };
     let parent_item_doc = lookup_item(parent_item_id.node, cdata.data());
     match item_family(parent_item_doc) {
-        Trait => Some(item_def_id(parent_item_doc, cdata)),
-        Impl | DefaultImpl => {
-            reader::maybe_get_doc(parent_item_doc, tag_item_trait_ref)
-                .map(|_| item_trait_ref(parent_item_doc, tcx, cdata).def_id)
-        }
-        _ => None
+        Trait | Impl | DefaultImpl => true,
+        _ => false
     }
 }
-
 
 pub fn get_native_libraries(cdata: Cmd)
                             -> Vec<(cstore::NativeLibraryKind, String)> {
