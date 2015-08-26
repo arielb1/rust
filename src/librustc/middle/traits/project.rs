@@ -12,6 +12,7 @@
 
 use super::elaborate_predicates;
 use super::report_overflow_error;
+use super::FulfillmentError;
 use super::Obligation;
 use super::ObligationCause;
 use super::PredicateObligation;
@@ -117,7 +118,8 @@ fn project_and_unify_type<'cx,'tcx>(
         match opt_normalize_projection_type(selcx,
                                             obligation.predicate.projection_ty.clone(),
                                             obligation.cause.clone(),
-                                            obligation.recursion_depth) {
+                                            obligation.recursion_depth,
+                                            false) {
             Some(n) => n,
             None => {
                 consider_unification_despite_ambiguity(selcx, obligation);
@@ -324,7 +326,7 @@ pub fn normalize_projection_type<'a,'b,'tcx>(
     depth: usize)
     -> NormalizedTy<'tcx>
 {
-    opt_normalize_projection_type(selcx, projection_ty.clone(), cause.clone(), depth)
+    opt_normalize_projection_type(selcx, projection_ty.clone(), cause.clone(), depth, false)
         .unwrap_or_else(move || {
             // if we bottom out in ambiguity, create a type variable
             // and a deferred predicate to resolve this when more type
@@ -343,6 +345,63 @@ pub fn normalize_projection_type<'a,'b,'tcx>(
         })
 }
 
+fn opt_normalize_projection_type_cached<'tcx>(
+    tcx: &ty::ctxt<'tcx>,
+    projection_ty: ty::ProjectionTy<'tcx>,
+    cause: ObligationCause<'tcx>,
+    depth: usize)
+    -> Result<Ty<'tcx>, Vec<FulfillmentError<'tcx>>>
+{
+    assert!(projection_ty.is_global());
+
+    if let Some(&ty) = tcx.projection_cache.borrow().get(&projection_ty) {
+        debug!("normalize_projection_type({:?}): CACHED = {:?}",
+               projection_ty, ty);
+        return Ok(ty);
+    }
+
+    debug!("normalize_projection_type({:?})", projection_ty);
+    let ref infcx = infer::new_infer_ctxt(tcx, &tcx.tables, None, false);
+    let mut selcx = &mut SelectionContext::new(infcx);
+
+    match opt_normalize_projection_type(selcx, projection_ty, cause.clone(),
+                                        depth, true) {
+        None => {
+            tcx.sess.span_bug(
+                cause.span,
+                &format!(
+                    "coherence failed to report ambiguity: \
+                    cannot locate the impl for the projection `{}`",
+                    projection_ty
+                 ))
+        }
+        Some(Normalized { value: ty, obligations }) => {
+            let mut fulfill_cx = infcx.fulfillment_cx.borrow_mut();
+            for obligation in obligations {
+                fulfill_cx.register_predicate_obligation(infcx, obligation);
+            }
+            try!(fulfill_cx.select_all_or_error(infcx));
+            let ty = infcx.resolve_type_vars_if_possible(&ty);
+            // this should be a "resolve_regions_to_static" method.
+            let ty = infcx.freshener().fold_ty(ty);
+            if ty.needs_infer() {
+                tcx.sess.span_bug(
+                    cause.span,
+                    &format!(
+                        "coherence failed to report ambiguity: \
+                         indeterminate result `{}` for the projection `{}`",
+                         ty, projection_ty
+                     ))
+            }
+            debug!("normalize_projection_type({:?}): UNCACHED = {:?}",
+                   projection_ty, ty);
+            tcx.projection_cache.borrow_mut().insert(projection_ty, ty);
+            Ok(ty)
+        }
+    }
+}
+
+
 /// The guts of `normalize`: normalize a specific projection like `<T
 /// as Trait>::Item`. The result is always a type (and possibly
 /// additional obligations). Returns `None` in the case of ambiguity,
@@ -351,14 +410,35 @@ fn opt_normalize_projection_type<'a,'b,'tcx>(
     selcx: &'a mut SelectionContext<'b,'tcx>,
     projection_ty: ty::ProjectionTy<'tcx>,
     cause: ObligationCause<'tcx>,
-    depth: usize)
+    depth: usize,
+    in_global_cx: bool)
     -> Option<NormalizedTy<'tcx>>
 {
     debug!("normalize_projection_type(\
            projection_ty={:?}, \
-           depth={})",
+           depth={}, \
+           in_global_cx={})",
            projection_ty,
-           depth);
+           depth,
+           in_global_cx);
+
+    if !in_global_cx && projection_ty.is_global() &&
+       !projection_ty.has_erasable_regions() {
+        return match opt_normalize_projection_type_cached(selcx.tcx(),
+                                                          projection_ty,
+                                                          cause.clone(),
+                                                          depth) {
+            Ok(ty) => Some(Normalized {
+                value: ty,
+                obligations: vec![]
+            }),
+            Err(_errs) => {
+                debug!("normalize_projection_type({:?}): ERROR ({:?})",
+                       projection_ty, _errs);
+                Some(normalize_to_error(selcx, projection_ty, cause, depth))
+            }
+        };
+    }
 
     let obligation = Obligation::with_depth(cause.clone(), depth, projection_ty.clone());
     match project_type(selcx, &obligation) {

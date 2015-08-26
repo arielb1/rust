@@ -786,6 +786,7 @@ pub struct ctxt<'tcx> {
     pub ast_ty_to_ty_cache: RefCell<NodeMap<Ty<'tcx>>>,
     pub ty_param_defs: RefCell<NodeMap<TypeParameterDef<'tcx>>>,
     pub normalized_cache: RefCell<FnvHashMap<Ty<'tcx>, Ty<'tcx>>>,
+    pub projection_cache: RefCell<FnvHashMap<ProjectionTy<'tcx>, Ty<'tcx>>>,
     pub lang_items: middle::lang_items::LanguageItems,
     /// A mapping of fake provided method def_ids to the default implementation
     pub provided_method_sources: RefCell<DefIdMap<DefId>>,
@@ -3875,6 +3876,7 @@ impl<'tcx> ctxt<'tcx> {
             trait_items_cache: RefCell::new(DefIdMap()),
             ty_param_defs: RefCell::new(NodeMap()),
             normalized_cache: RefCell::new(FnvHashMap()),
+            projection_cache: RefCell::new(FnvHashMap()),
             lang_items: lang_items,
             provided_method_sources: RefCell::new(DefIdMap()),
             destructors: RefCell::new(DefIdSet()),
