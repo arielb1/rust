@@ -77,6 +77,11 @@ pub fn load_index(data: &[u8]) -> index::Index {
     index::Index::from_buf(index.data, index.start, index.end)
 }
 
+pub fn load_xrefs(data: &[u8]) -> index::DenseIndex {
+    let index = reader::get_doc(rbml::Doc::new(data), tag_xref_index);
+    index::DenseIndex::from_buf(index.data, index.start, index.end)
+}
+
 #[derive(Debug, PartialEq)]
 enum Family {
     ImmStatic,             // c
