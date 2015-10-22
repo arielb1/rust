@@ -664,7 +664,8 @@ fn filter_to_trait_obligations<'tcx>(bounds: ty::InstantiatedPredicates<'tcx>)
             ty::Predicate::ObjectSafe(..) |
             ty::Predicate::Equate(..) |
             ty::Predicate::TypeOutlives(..) |
-            ty::Predicate::RegionOutlives(..) => {
+            ty::Predicate::RegionOutlives(..) |
+            ty::Predicate::TypeError(..) => {
             }
         }
     }

@@ -20,14 +20,14 @@ use syntax::codemap::Span;
 
 use rustc_front::hir;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct ExpectedFound<T> {
     pub expected: T,
     pub found: T
 }
 
 // Data structures used in type unification
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum TypeError<'tcx> {
     Mismatch,
     UnsafetyMismatch(ExpectedFound<hir::Unsafety>),

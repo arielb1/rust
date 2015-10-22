@@ -495,6 +495,13 @@ fn process_predicate<'a,'tcx>(selcx: &mut SelectionContext<'a,'tcx>,
             true
         }
 
+        ty::Predicate::TypeError(..) => {
+            errors.push(FulfillmentError::new(
+                obligation.clone(),
+                CodeSelectionError(Unimplemented)));
+            true
+        }
+
         ty::Predicate::WellFormed(ty) => {
             let rfc1214 = match obligation.cause.code {
                 ObligationCauseCode::RFC1214(_) => true,

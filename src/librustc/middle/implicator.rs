@@ -301,7 +301,8 @@ impl<'a, 'tcx> Implicator<'a, 'tcx> {
                     }
                 }
                 ty::Predicate::ObjectSafe(_) |
-                ty::Predicate::WellFormed(_) => {
+                ty::Predicate::WellFormed(_) |
+                ty::Predicate::TypeError(_) => {
                 }
             }
         }

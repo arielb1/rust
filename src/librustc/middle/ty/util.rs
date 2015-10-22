@@ -400,7 +400,8 @@ impl<'tcx> ty::ctxt<'tcx> {
                     ty::Predicate::Equate(..) |
                     ty::Predicate::WellFormed(..) |
                     ty::Predicate::ObjectSafe(..) |
-                    ty::Predicate::RegionOutlives(..) => {
+                    ty::Predicate::RegionOutlives(..) |
+                    ty::Predicate::TypeError(..) => {
                         None
                     }
                     ty::Predicate::TypeOutlives(ty::Binder(ty::OutlivesPredicate(t, r))) => {

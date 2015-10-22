@@ -441,6 +441,37 @@ enum ProjectedTy<'tcx> {
     NoProgress(Ty<'tcx>),
 }
 
+/// It is possible to have multiple projections from the same trait-ref.
+/// In that case, we should unify them all if they will definitely match
+/// as there are no inference variables (we won't get problematic
+/// impl candidates as selection will avoid them).
+fn unify_all_candidates<'cx,'tcx>(
+    selcx: &mut SelectionContext<'cx,'tcx>,
+    obligation: &ProjectionTyObligation<'tcx>,
+    candidates: Vec<ProjectionTyCandidate<'tcx>>
+    ) -> Result<ProjectedTy<'tcx>, ProjectionTyError<'tcx>>
+{
+    debug!("unify_all_candidates(obligation={:?},candidates={:?})",
+           obligation, candidates);
+    let ty = selcx.infcx().next_ty_var();
+    let obligations = candidates.into_iter().flat_map(|candidate| {
+        let (c_ty, c_obligations) = confirm_candidate(selcx, obligation, candidate);
+        let origin = infer::RelateOutputImplTypes(obligation.cause.span);
+        if let Err(e) = infer::mk_eqty(selcx.infcx(), true, origin, c_ty, ty) {
+            return vec![Obligation {
+                cause: obligation.cause.clone(),
+                recursion_depth: obligation.recursion_depth,
+                predicate: ty::Predicate::TypeError(box e)
+            }];
+        }
+        c_obligations
+    }).collect();
+    let ty = selcx.infcx().resolve_type_vars_if_possible(&ty);
+    debug!("unify_all_candidates => ({:?},{:?})",
+           obligations, ty);
+    Ok(ProjectedTy::Progress(ty, obligations))
+}
+
 /// Compute the result of a projection type (if we can).
 fn project_type<'cx,'tcx>(
     selcx: &mut SelectionContext<'cx,'tcx>,
@@ -514,6 +545,10 @@ fn project_type<'cx,'tcx>(
 
     if candidates.ambiguous || candidates.vec.len() > 1 {
         return Err(ProjectionTyError::TooManyCandidates);
+    }
+
+    if candidates.vec.len() > 1 && !obligation.has_infer_types() {
+        return unify_all_candidates(selcx, obligation, candidates.vec);
     }
 
     match candidates.vec.pop() {

@@ -59,7 +59,8 @@ impl FreeRegionMap {
                 ty::Predicate::Equate(..) |
                 ty::Predicate::WellFormed(..) |
                 ty::Predicate::ObjectSafe(..) |
-                ty::Predicate::TypeOutlives(..) => {
+                ty::Predicate::TypeOutlives(..) |
+                ty::Predicate::TypeError(..) => {
                     // No region bounds here
                 }
                 ty::Predicate::RegionOutlives(ty::Binder(ty::OutlivesPredicate(r_a, r_b))) => {

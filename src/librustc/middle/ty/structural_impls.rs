@@ -117,6 +117,7 @@ impl<'tcx> RegionEscape for ty::Predicate<'tcx> {
             ty::Predicate::TypeOutlives(ref data) => data.has_regions_escaping_depth(depth),
             ty::Predicate::Projection(ref data) => data.has_regions_escaping_depth(depth),
             ty::Predicate::WellFormed(ty) => ty.has_regions_escaping_depth(depth),
+            ty::Predicate::TypeError(..) => false,
             ty::Predicate::ObjectSafe(_trait_def_id) => false,
         }
     }
@@ -261,6 +262,7 @@ impl<'tcx> HasTypeFlags for ty::Predicate<'tcx> {
             ty::Predicate::TypeOutlives(ref data) => data.has_type_flags(flags),
             ty::Predicate::Projection(ref data) => data.has_type_flags(flags),
             ty::Predicate::WellFormed(data) => data.has_type_flags(flags),
+            ty::Predicate::TypeError(..) => flags.intersects(TypeFlags::HAS_TY_ERR),
             ty::Predicate::ObjectSafe(_trait_def_id) => false,
         }
     }
@@ -749,6 +751,8 @@ impl<'tcx> TypeFoldable<'tcx> for ty::Predicate<'tcx> {
                 ty::Predicate::WellFormed(data.fold_with(folder)),
             ty::Predicate::ObjectSafe(trait_def_id) =>
                 ty::Predicate::ObjectSafe(trait_def_id),
+            ty::Predicate::TypeError(ref e) =>
+                folder.tcx().sess.bug(&format!("unable to fold error `{:?}`", e))
         }
     }
 }

@@ -172,6 +172,7 @@ fn deduce_expectations_from_obligations<'a,'tcx>(
             let opt_trait_ref = match obligation.predicate {
                 ty::Predicate::Projection(ref data) => Some(data.to_poly_trait_ref()),
                 ty::Predicate::Trait(ref data) => Some(data.to_poly_trait_ref()),
+                ty::Predicate::TypeError(..) => None,
                 ty::Predicate::Equate(..) => None,
                 ty::Predicate::RegionOutlives(..) => None,
                 ty::Predicate::TypeOutlives(..) => None,

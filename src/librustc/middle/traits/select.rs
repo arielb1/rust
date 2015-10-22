@@ -510,6 +510,10 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                     }
                 })
             }
+
+            ty::Predicate::TypeError(..) => {
+                EvaluatedToErr(Unimplemented)
+            }
         }
     }
 

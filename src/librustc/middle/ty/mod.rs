@@ -570,7 +570,7 @@ pub struct ClosureUpvar<'tcx> {
     pub ty: Ty<'tcx>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub enum IntVarValue {
     IntType(ast::IntTy),
     UintType(ast::UintTy),
@@ -698,6 +698,9 @@ pub enum Predicate<'tcx> {
     /// where `T1 == T2`.
     Equate(PolyEquatePredicate<'tcx>),
 
+    /// a type error
+    TypeError(Box<ty::error::TypeError<'tcx>>),
+
     /// where 'a : 'b
     RegionOutlives(PolyRegionOutlivesPredicate),
 
@@ -802,6 +805,8 @@ impl<'tcx> Predicate<'tcx> {
                 Predicate::WellFormed(data.subst(tcx, substs)),
             Predicate::ObjectSafe(trait_def_id) =>
                 Predicate::ObjectSafe(trait_def_id),
+            Predicate::TypeError(ref data) =>
+                tcx.sess.bug(&format!("cannot subst error {:?}", data))
         }
     }
 }
@@ -965,6 +970,9 @@ impl<'tcx> Predicate<'tcx> {
             ty::Predicate::RegionOutlives(..) => {
                 vec![]
             }
+            ty::Predicate::TypeError(..) => {
+                vec![]
+            }
             ty::Predicate::Projection(ref data) => {
                 let trait_inputs = data.0.projection_ty.trait_ref.substs.types.as_slice();
                 trait_inputs.iter()
@@ -998,7 +1006,8 @@ impl<'tcx> Predicate<'tcx> {
             Predicate::RegionOutlives(..) |
             Predicate::WellFormed(..) |
             Predicate::ObjectSafe(..) |
-            Predicate::TypeOutlives(..) => {
+            Predicate::TypeOutlives(..) |
+            Predicate::TypeError(..) => {
                 None
             }
         }

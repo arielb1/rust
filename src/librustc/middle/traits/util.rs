@@ -55,6 +55,9 @@ impl<'a,'tcx> PredicateSet<'a,'tcx> {
             ty::Predicate::Projection(ref data) =>
                 ty::Predicate::Projection(self.tcx.anonymize_late_bound_regions(data)),
 
+            ty::Predicate::TypeError(ref e) =>
+                ty::Predicate::TypeError(e.clone()),
+
             ty::Predicate::WellFormed(data) =>
                 ty::Predicate::WellFormed(data),
 
@@ -177,6 +180,9 @@ impl<'cx, 'tcx> Elaborator<'cx, 'tcx> {
                 //
                 //     'b : 'a
                 //     'a : 'c
+            }
+            ty::Predicate::TypeError(ref e) => {
+                self.tcx.sess.bug(&format!("cannot elaborate error {:?}", e))
             }
         }
     }

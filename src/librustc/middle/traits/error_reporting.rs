@@ -275,6 +275,11 @@ pub fn report_selection_error<'a, 'tcx>(infcx: &InferCtxt<'a, 'tcx>,
                         note_obligation_cause(infcx, obligation);
                     }
 
+                    ty::Predicate::TypeError(ref e) => {
+                        infcx.tcx.note_and_explain_type_err(e, obligation.cause.span);
+                        note_obligation_cause(infcx, obligation);
+                    }
+
                     ty::Predicate::ObjectSafe(trait_def_id) => {
                         let violations = object_safety_violations(
                             infcx.tcx, trait_def_id);

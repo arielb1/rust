@@ -165,7 +165,8 @@ pub fn supertraits_reference_self<'tcx>(tcx: &ty::ctxt<'tcx>,
                 ty::Predicate::ObjectSafe(..) |
                 ty::Predicate::TypeOutlives(..) |
                 ty::Predicate::RegionOutlives(..) |
-                ty::Predicate::Equate(..) => {
+                ty::Predicate::Equate(..) |
+                ty::Predicate::TypeError(..) => {
                     false
                 }
             }
@@ -206,7 +207,8 @@ fn generics_require_sized_self<'tcx>(tcx: &ty::ctxt<'tcx>,
                 ty::Predicate::RegionOutlives(..) |
                 ty::Predicate::WellFormed(..) |
                 ty::Predicate::ObjectSafe(..) |
-                ty::Predicate::TypeOutlives(..) => {
+                ty::Predicate::TypeOutlives(..) |
+                ty::Predicate::TypeError(..) => {
                     false
                 }
             }

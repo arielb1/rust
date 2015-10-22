@@ -446,6 +446,9 @@ pub fn enc_predicate<'a, 'tcx>(w: &mut Encoder,
             enc_ty(w, cx, a);
             enc_ty(w, cx, b);
         }
+        ty::Predicate::TypeError(ref e) => {
+            cx.diag.handler().bug(&format!("cannot encode error {:?}", e));
+        }
         ty::Predicate::RegionOutlives(ty::Binder(ty::OutlivesPredicate(a, b))) => {
             mywrite!(w, "r");
             enc_region(w, cx, a);
