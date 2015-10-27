@@ -2152,7 +2152,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         match self_ty.sty {
             ty::TyTrait(ref data) => {
                 // OK to skip the binder, it is reintroduced below
-                let input_types = data.principal.skip_binder().substs.types.get_slice(TypeSpace);
+                let input_types = data.principal.skip_binder().substs.type_space();
                 let assoc_types = data.bounds.projection_bounds
                                              .iter()
                                              .map(|pb| pb.skip_binder().ty);
@@ -2195,7 +2195,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             Ok(self.impl_or_trait_obligations(obligation.cause.clone(),
                                               obligation.recursion_depth + 1,
                                               trait_def_id,
-                                              &trait_ref.substs,
+                                              trait_ref.substs,
                                               skol_map,
                                               snapshot))
         });
@@ -2252,7 +2252,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             self.impl_or_trait_obligations(cause,
                                            recursion_depth,
                                            impl_def_id,
-                                           &substs.value,
+                                           tcx.mk_subst_ref(substs),
                                            skol_map,
                                            snapshot);
 
@@ -2886,7 +2886,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                                  cause: ObligationCause<'tcx>,
                                  recursion_depth: usize,
                                  def_id: DefId, // of impl or trait
-                                 substs: &Substs<'tcx>, // for impl or trait
+                                 substs: SubstRef<'tcx>, // for impl or trait
                                  skol_map: infer::SkolemizationMap,
                                  snapshot: &infer::CombinedSnapshot)
                                  -> Vec<PredicateObligation<'tcx>>

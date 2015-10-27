@@ -66,7 +66,7 @@ fn fn_sig(f: &mut fmt::Formatter,
 }
 
 fn parameterized<GG>(f: &mut fmt::Formatter,
-                     substs: &subst::Substs,
+                     substs: subst::SubstRef,
                      did: DefId,
                      projections: &[ty::ProjectionPredicate],
                      get_generics: GG)
@@ -88,42 +88,16 @@ fn parameterized<GG>(f: &mut fmt::Formatter,
         }
     };
 
-    if verbose {
-        match substs.regions {
-            subst::ErasedRegions => {
-                try!(start_or_continue(f, "<", ", "));
-                try!(write!(f, ".."));
-            }
-            subst::NonerasedRegions(ref regions) => {
-                for region in regions {
-                    try!(start_or_continue(f, "<", ", "));
-                    try!(write!(f, "{:?}", region));
-                }
-            }
-        }
-        for &ty in &substs.types {
-            try!(start_or_continue(f, "<", ", "));
-            try!(write!(f, "{}", ty));
-        }
-        for projection in projections {
-            try!(start_or_continue(f, "<", ", "));
-            try!(write!(f, "{}={}",
-                        projection.projection_ty.item_name,
-                        projection.ty));
-        }
-        return start_or_continue(f, "", ">");
-    }
-
     if fn_trait_kind.is_some() && projections.len() == 1 {
         let projection_ty = projections[0].ty;
-        if let TyTuple(ref args) = substs.types.get_slice(subst::TypeSpace)[0].sty {
+        if let TyTuple(ref args) = substs.inner_types().get_slice(subst::TypeSpace)[0].sty {
             return fn_sig(f, args, false, ty::FnConverging(projection_ty));
         }
     }
 
-    match substs.regions {
-        subst::ErasedRegions => { }
-        subst::NonerasedRegions(ref regions) => {
+    match substs.inner_regions() {
+        &subst::ErasedRegions => { }
+        &subst::NonerasedRegions(ref regions) => {
             for &r in regions {
                 try!(start_or_continue(f, "<", ", "));
                 let s = r.to_string();
@@ -141,12 +115,7 @@ fn parameterized<GG>(f: &mut fmt::Formatter,
         }
     }
 
-    // It is important to execute this conditionally, only if -Z
-    // verbose is false. Otherwise, debug logs can sometimes cause
-    // ICEs trying to fetch the generics early in the pipeline. This
-    // is kind of a hacky workaround in that -Z verbose is required to
-    // avoid those ICEs.
-    let tps = substs.types.get_slice(subst::TypeSpace);
+    let tps = substs.inner_types().get_slice(subst::TypeSpace);
     let num_defaults = ty::tls::with(|tcx| {
         let generics = get_generics(tcx);
 
@@ -880,6 +849,8 @@ impl<'tcx> fmt::Display for ty::TypeVariants<'tcx> {
                           !tcx.tcache.borrow().contains_key(&def.did) {
                         write!(f, "{}<..>", tcx.item_path_str(def.did))
                     } else {
+                        // FIXME: TyEnum should use SubstRef
+                        let substs = tcx.mk_subst_ref(tcx.lift(&substs).unwrap().clone());
                         parameterized(f, substs, def.did, &[],
                                       |tcx| tcx.lookup_item_type(def.did).generics)
                     }

@@ -27,7 +27,8 @@ use middle;
 use middle::def::{self, ExportMap};
 use middle::def_id::DefId;
 use middle::lang_items::{FnTraitLangItem, FnMutTraitLangItem, FnOnceTraitLangItem};
-use middle::subst::{self, ParamSpace, Subst, Substs, VecPerParamSpace};
+use middle::subst::{self, ParamSpace, Subst, Substs, Substitutor};
+use middle::subst::{VecPerParamSpace, SubstRef};
 use middle::traits;
 use middle::ty;
 use middle::ty::fold::TypeFolder;
@@ -670,8 +671,10 @@ impl<'tcx> GenericPredicates<'tcx> {
         }
     }
 
-    pub fn instantiate(&self, tcx: &ctxt<'tcx>, substs: &Substs<'tcx>)
-                       -> InstantiatedPredicates<'tcx> {
+    pub fn instantiate<S>(&self, tcx: &ctxt<'tcx>, substs: S)
+                          -> InstantiatedPredicates<'tcx>
+        where S: Substitutor<'tcx>
+    {
         InstantiatedPredicates {
             predicates: self.predicates.subst(tcx, substs),
         }
@@ -786,7 +789,7 @@ impl<'tcx> Predicate<'tcx> {
         // from the substitution and the value being substituted into, and
         // this trick achieves that).
 
-        let substs = &trait_ref.0.substs;
+        let substs = trait_ref.0.substs;
         match *self {
             Predicate::Trait(ty::Binder(ref data)) =>
                 Predicate::Trait(ty::Binder(data.subst(tcx, substs))),
@@ -818,7 +821,8 @@ impl<'tcx> TraitPredicate<'tcx> {
     }
 
     pub fn input_types(&self) -> &[Ty<'tcx>] {
-        self.trait_ref.substs.types.as_slice()
+        // FIXME: reverse def lookup
+        self.trait_ref.substs.types()
     }
 
     pub fn self_ty(&self) -> Ty<'tcx> {
@@ -954,7 +958,7 @@ impl<'tcx> Predicate<'tcx> {
     pub fn walk_tys(&self) -> IntoIter<Ty<'tcx>> {
         let vec: Vec<_> = match *self {
             ty::Predicate::Trait(ref data) => {
-                data.0.trait_ref.substs.types.as_slice().to_vec()
+                data.0.trait_ref.substs.types().to_vec()
             }
             ty::Predicate::Equate(ty::Binder(ref data)) => {
                 vec![data.0, data.1]
@@ -966,7 +970,7 @@ impl<'tcx> Predicate<'tcx> {
                 vec![]
             }
             ty::Predicate::Projection(ref data) => {
-                let trait_inputs = data.0.projection_ty.trait_ref.substs.types.as_slice();
+                let trait_inputs = data.0.projection_ty.trait_ref.substs.types();
                 trait_inputs.iter()
                             .cloned()
                             .chain(Some(data.0.ty))
@@ -1040,7 +1044,7 @@ impl<'tcx> InstantiatedPredicates<'tcx> {
 }
 
 impl<'tcx> TraitRef<'tcx> {
-    pub fn new(def_id: DefId, substs: &'tcx Substs<'tcx>) -> TraitRef<'tcx> {
+    pub fn new(def_id: DefId, substs: SubstRef<'tcx>) -> TraitRef<'tcx> {
         TraitRef { def_id: def_id, substs: substs }
     }
 
@@ -1049,11 +1053,7 @@ impl<'tcx> TraitRef<'tcx> {
     }
 
     pub fn input_types(&self) -> &[Ty<'tcx>] {
-        // Select only the "input types" from a trait-reference. For
-        // now this is all the types that appear in the
-        // trait-reference, but it should eventually exclude
-        // associated types.
-        self.substs.types.as_slice()
+        self.substs.types()
     }
 }
 

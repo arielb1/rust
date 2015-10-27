@@ -120,12 +120,10 @@ fn report_on_unimplemented<'a, 'tcx>(infcx: &InferCtxt<'a, 'tcx>,
             let def = infcx.tcx.lookup_trait_def(def_id);
             let trait_str = def.trait_ref.to_string();
             if let Some(ref istring) = item.value_str() {
-                let mut generic_map = def.generics.types.iter_enumerated()
-                                         .map(|(param, i, gen)| {
-                                               (gen.name.as_str().to_string(),
-                                                trait_ref.substs.types.get(param, i)
-                                                         .to_string())
-                                              }).collect::<FnvHashMap<String, String>>();
+                let mut generic_map =
+                    def.generics.types.iter().zip(trait_ref.substs.types())
+                    .map(|(gen, ty)| (gen.name.as_str().to_string(), ty.to_string()))
+                    .collect::<FnvHashMap<String, String>>();
                 generic_map.insert("Self".to_string(),
                                    trait_ref.self_ty().to_string());
                 let parser = Parser::new(&istring);

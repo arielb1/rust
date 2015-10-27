@@ -317,7 +317,7 @@ fn enc_bound_region(w: &mut Encoder, cx: &ctxt, br: ty::BoundRegion) {
 pub fn enc_trait_ref<'a, 'tcx>(w: &mut Encoder, cx: &ctxt<'a, 'tcx>,
                                s: ty::TraitRef<'tcx>) {
     mywrite!(w, "{}|", (cx.ds)(s.def_id));
-    enc_substs(w, cx, s.substs);
+    enc_substs(w, cx, s.substs.inner_substs());
 }
 
 fn enc_unsafety(w: &mut Encoder, p: hir::Unsafety) {

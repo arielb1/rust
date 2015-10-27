@@ -52,7 +52,7 @@ use rustc_front::hir;
 pub struct CtxtArenas<'tcx> {
     // internings
     type_: TypedArena<TyS<'tcx>>,
-    substs: TypedArena<Substs<'tcx>>,
+    substs: TypedArena<subst::InternedSubsts<'tcx>>,
     bare_fn: TypedArena<BareFnTy<'tcx>>,
     region: TypedArena<Region>,
     stability: TypedArena<attr::Stability>,
@@ -211,7 +211,9 @@ pub struct ctxt<'tcx> {
     interner: RefCell<FnvHashMap<InternedTy<'tcx>, Ty<'tcx>>>,
 
     // FIXME as above, use a hashset if equivalent elements can be queried.
-    substs_interner: RefCell<FnvHashMap<&'tcx Substs<'tcx>, &'tcx Substs<'tcx>>>,
+    substs_interner: RefCell<FnvHashMap<
+        &'tcx subst::InternedSubsts<'tcx>,
+        &'tcx subst::InternedSubsts<'tcx>>>,
     bare_fn_interner: RefCell<FnvHashMap<&'tcx BareFnTy<'tcx>, &'tcx BareFnTy<'tcx>>>,
     region_interner: RefCell<FnvHashMap<&'tcx Region, &'tcx Region>>,
     stability_interner: RefCell<FnvHashMap<&'tcx attr::Stability, &'tcx attr::Stability>>,
@@ -544,6 +546,18 @@ impl<'a, 'tcx> Lift<'tcx> for Ty<'a> {
 impl<'a, 'tcx> Lift<'tcx> for &'a Substs<'a> {
     type Lifted = &'tcx Substs<'tcx>;
     fn lift_to_tcx(&self, tcx: &ctxt<'tcx>) -> Option<&'tcx Substs<'tcx>> {
+        if let Some(&substs) = tcx.substs_interner.borrow().get(self.inner_substs()) {
+            if *self as *const _ == substs.inner_substs() as *const _ {
+                return Some(substs);
+            }
+        }
+        None
+    }
+}
+
+impl<'a, 'tcx> Lift<'tcx> for subst::SubstRef<'a> {
+    type Lifted = subst::SubstRef<'tcx>;
+    fn lift_to_tcx(&self, tcx: &ctxt<'tcx>) -> Option<subst::SubstRef<'tcx>> {
         if let Some(&substs) = tcx.substs_interner.borrow().get(*self) {
             if *self as *const _ == substs as *const _ {
                 return Some(substs);
@@ -709,6 +723,11 @@ fn bound_list_is_sorted(bounds: &[ty::PolyProjectionPredicate]) -> bool {
 impl<'tcx> ctxt<'tcx> {
     // Type constructors
     pub fn mk_substs(&self, substs: Substs<'tcx>) -> &'tcx Substs<'tcx> {
+        self.mk_subst_ref(substs).inner_substs()
+    }
+
+    pub fn mk_subst_ref(&self, substs: Substs<'tcx>) -> subst::SubstRef<'tcx> {
+        let substs = subst::InternedSubsts::new(substs);
         if let Some(substs) = self.substs_interner.borrow().get(&substs) {
             return *substs;
         }

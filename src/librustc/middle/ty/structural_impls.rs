@@ -638,6 +638,13 @@ impl<'tcx> TypeFoldable<'tcx> for subst::Substs<'tcx> {
     }
 }
 
+impl<'tcx> TypeFoldable<'tcx> for subst::SubstRef<'tcx> {
+    fn fold_with<F: TypeFolder<'tcx>>(&self, folder: &mut F) -> subst::SubstRef<'tcx> {
+        // FIXME: be less inefficient here
+        self.tcx().mk_subst_ref(folder.fold_substs(self.inner_substs()))
+    }
+}
+
 impl<'tcx> TypeFoldable<'tcx> for ty::ClosureSubsts<'tcx> {
     fn fold_with<F: TypeFolder<'tcx>>(&self, folder: &mut F) -> ty::ClosureSubsts<'tcx> {
         let func_substs = self.func_substs.fold_with(folder);

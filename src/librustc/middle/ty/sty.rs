@@ -12,7 +12,7 @@
 
 use middle::def_id::DefId;
 use middle::region;
-use middle::subst::{self, Substs};
+use middle::subst::{self, Substs, SubstRef};
 use middle::traits;
 use middle::ty::{self, AdtDef, TypeFlags, Ty, TyS};
 use middle::ty::{RegionEscape, ToPredicate};
@@ -320,7 +320,7 @@ impl<'tcx> TraitTy<'tcx> {
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct TraitRef<'tcx> {
     pub def_id: DefId,
-    pub substs: &'tcx Substs<'tcx>,
+    pub substs: SubstRef<'tcx>,
 }
 
 pub type PolyTraitRef<'tcx> = Binder<TraitRef<'tcx>>;

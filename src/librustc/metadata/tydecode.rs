@@ -289,7 +289,7 @@ impl<'a,'tcx> TyDecoder<'a,'tcx> {
 
     pub fn parse_trait_ref(&mut self) -> ty::TraitRef<'tcx> {
         let def = self.parse_def();
-        let substs = self.tcx.mk_substs(self.parse_substs());
+        let substs = self.tcx.mk_subst_ref(self.parse_substs());
         ty::TraitRef {def_id: def, substs: substs}
     }
 

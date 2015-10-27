@@ -155,10 +155,9 @@ pub fn supertraits_reference_self<'tcx>(tcx: &ty::ctxt<'tcx>,
             match predicate {
                 ty::Predicate::Trait(ref data) => {
                     // In the case of a trait predicate, we can skip the "self" type.
-                    data.0.trait_ref.substs.types.get_slice(TypeSpace)
-                                                 .iter()
-                                                 .cloned()
-                                                 .any(|t| t.has_self_ty())
+                    data.0.trait_ref.substs.type_space()
+                        .iter()
+                        .any(|t| t.has_self_ty())
                 }
                 ty::Predicate::Projection(..) |
                 ty::Predicate::WellFormed(..) |

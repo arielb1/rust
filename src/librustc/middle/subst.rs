@@ -24,6 +24,60 @@ use syntax::codemap::{Span, DUMMY_SP};
 
 ///////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct InternedSubsts<'tcx>(Substs<'tcx>);
+pub type SubstRef<'tcx> = &'tcx InternedSubsts<'tcx>;
+
+impl<'tcx> InternedSubsts<'tcx> {
+    pub fn from_subst(t: Substs<'tcx>) -> Self {
+        InternedSubsts(t)
+    }
+
+    pub fn inner_substs(&self) -> &Substs<'tcx> {
+        &self.0
+    }
+
+    pub fn inner_regions(&self) -> &RegionSubsts {
+        &self.0.regions
+    }
+
+    pub fn inner_types(&self) -> &VecPerParamSpace<Ty<'tcx>> {
+        &self.0.types
+    }
+
+    #[inline]
+    pub fn types(&self) -> &[Ty<'tcx>] {
+        &self.0.types.as_slice()
+    }
+
+    #[inline]
+    pub fn regions(&self) -> &[ty::Region] {
+        &self.0.regions.as_slice()
+    }
+
+    #[inline]
+    pub fn type_space(&self) -> &[Ty<'tcx>] {
+        self.0.types.get_slice(TypeSpace)
+    }
+
+    /// FIXME: we don't really want this
+    #[inline]
+    pub fn self_ty(&self) -> Option<Ty<'tcx>> {
+        self.0.self_ty()
+    }
+
+    pub fn with_method(self,
+                       m_types: Vec<Ty<'tcx>>,
+                       m_regions: Vec<ty::Region>)
+                       -> Substs<'tcx>
+    {
+        let Substs { types, regions } = self.0.clone();
+        let types = types.with_vec(FnSpace, m_types);
+        let regions = regions.map(|r| r.with_vec(FnSpace, m_regions));
+        Substs { types: types, regions: regions }
+    }
+}
+
 /// A substitution mapping type/region parameters to new values. We
 /// identify each in-scope parameter by an *index* and a *parameter
 /// space* (which indices where the parameter is defined; see
@@ -527,6 +581,48 @@ impl<'a,T> IntoIterator for &'a VecPerParamSpace<T> {
 
 
 ///////////////////////////////////////////////////////////////////////////
+// Public trait `Substitutor` for abstraction over Subst and SubstRef
+// This should go away when we get actual SubstRef
+
+pub trait Substitutor<'tcx> : Copy {
+    fn get_region(self, r: ty::EarlyBoundRegion) -> Option<ty::Region>;
+    fn get_ty(self, t: ty::ParamTy) -> Option<Ty<'tcx>>;
+}
+
+impl<'a, 'tcx> Substitutor<'tcx> for &'a Substs<'tcx> {
+    #[inline]
+    fn get_region(self, data: ty::EarlyBoundRegion) -> Option<ty::Region> {
+        match self.regions {
+            ErasedRegions => ty::ReStatic,
+            NonerasedRegions(ref regions) =>
+                regions.opt_get(data.space, data.index as usize)
+        }
+    }
+
+    #[inline]
+    fn get_ty(self, p: ty::ParamTy) -> Option<Ty<'tcx>> {
+        self.types.opt_get(p.space, p.idx as usize)
+    }
+}
+
+impl<'tcx> Substitutor<'tcx> for &'tcx InternedSubsts<'tcx> {
+    #[inline]
+    fn get_region(self, data: ty::EarlyBoundRegion) -> Option<ty::Region> {
+        match self.0.regions {
+            ErasedRegions => ty::ReStatic,
+            NonerasedRegions(ref regions) =>
+                regions.opt_get(data.space, data.index as usize)
+        }
+    }
+
+    #[inline]
+    fn get_ty(self, p: ty::ParamTy) -> Option<Ty<'tcx>> {
+        self.0.types.opt_get(p.space, p.idx as usize)
+    }
+}
+
+
+///////////////////////////////////////////////////////////////////////////
 // Public trait `Subst`
 //
 // Just call `foo.subst(tcx, substs)` to perform a substitution across
@@ -534,22 +630,24 @@ impl<'a,T> IntoIterator for &'a VecPerParamSpace<T> {
 // there is more information available (for better errors).
 
 pub trait Subst<'tcx> : Sized {
-    fn subst(&self, tcx: &ty::ctxt<'tcx>, substs: &Substs<'tcx>) -> Self {
+    fn subst<S: Substitutor<'tcx>>(&self, tcx: &ty::ctxt<'tcx>, substs: S) -> Self {
         self.subst_spanned(tcx, substs, None)
     }
 
-    fn subst_spanned(&self, tcx: &ty::ctxt<'tcx>,
-                     substs: &Substs<'tcx>,
-                     span: Option<Span>)
-                     -> Self;
+    fn subst_spanned<S>(&self, tcx: &ty::ctxt<'tcx>,
+                        substs: S,
+                        span: Option<Span>)
+                        -> Self
+        where S: Substitutor<'tcx>;
 }
 
 impl<'tcx, T:TypeFoldable<'tcx>> Subst<'tcx> for T {
-    fn subst_spanned(&self,
-                     tcx: &ty::ctxt<'tcx>,
-                     substs: &Substs<'tcx>,
-                     span: Option<Span>)
-                     -> T
+    fn subst_spanned<S>(&self,
+                        tcx: &ty::ctxt<'tcx>,
+                        substs: S,
+                        span: Option<Span>)
+                        -> T
+        where S: Substitutor<'tcx>
     {
         let mut folder = SubstFolder { tcx: tcx,
                                        substs: substs,
@@ -564,9 +662,9 @@ impl<'tcx, T:TypeFoldable<'tcx>> Subst<'tcx> for T {
 ///////////////////////////////////////////////////////////////////////////
 // The actual substitution engine itself is a type folder.
 
-struct SubstFolder<'a, 'tcx: 'a> {
+struct SubstFolder<'a, 'tcx: 'a, S: Substitutor<'tcx>+'a> {
     tcx: &'a ty::ctxt<'tcx>,
-    substs: &'a Substs<'tcx>,
+    substs: S,
 
     // The location for which the substitution is performed, if available.
     span: Option<Span>,
@@ -581,7 +679,7 @@ struct SubstFolder<'a, 'tcx: 'a> {
     region_binders_passed: u32,
 }
 
-impl<'a, 'tcx> TypeFolder<'tcx> for SubstFolder<'a, 'tcx> {
+impl<'a, 'tcx, S> TypeFolder<'tcx> for SubstFolder<'a, 'tcx, S> where S: Substitutor<'tcx> {
     fn tcx(&self) -> &ty::ctxt<'tcx> { self.tcx }
 
     fn enter_region_binder(&mut self) {
@@ -600,26 +698,22 @@ impl<'a, 'tcx> TypeFolder<'tcx> for SubstFolder<'a, 'tcx> {
         // the specialized routine `ty::replace_late_regions()`.
         match r {
             ty::ReEarlyBound(data) => {
-                match self.substs.regions {
-                    ErasedRegions => ty::ReStatic,
-                    NonerasedRegions(ref regions) =>
-                        match regions.opt_get(data.space, data.index as usize) {
-                            Some(&r) => {
-                                self.shift_region_through_binders(r)
-                            }
-                            None => {
-                                let span = self.span.unwrap_or(DUMMY_SP);
-                                self.tcx().sess.span_bug(
-                                    span,
-                                    &format!("Type parameter out of range \
+                match self.substs.get_region(data) {
+                    Some(&r) => {
+                        self.shift_region_through_binders(r)
+                    }
+                    None => {
+                        let span = self.span.unwrap_or(DUMMY_SP);
+                        self.tcx().sess.span_bug(
+                            span,
+                            &format!("Type parameter out of range \
                                               when substituting in region {} (root type={:?}) \
                                               (space={:?}, index={})",
-                                             data.name,
-                                             self.root_ty,
-                                             data.space,
-                                             data.index));
-                            }
-                        }
+                                     data.name,
+                                     self.root_ty,
+                                     data.space,
+                                     data.index));
+                    }
                 }
             }
             _ => r
@@ -657,10 +751,10 @@ impl<'a, 'tcx> TypeFolder<'tcx> for SubstFolder<'a, 'tcx> {
     }
 }
 
-impl<'a,'tcx> SubstFolder<'a,'tcx> {
+impl<'a,'tcx,S:Substitutor<'tcx>> SubstFolder<'a,'tcx,S> {
     fn ty_for_param(&self, p: ty::ParamTy, source_ty: Ty<'tcx>) -> Ty<'tcx> {
         // Look up the type in the substitutions. It really should be in there.
-        let opt_ty = self.substs.types.opt_get(p.space, p.idx as usize);
+        let opt_ty = self.substs.get_ty(p);
         let ty = match opt_ty {
             Some(t) => *t,
             None => {
