@@ -9,7 +9,7 @@
 // except according to those terms.
 
 use dep_graph::DepGraph;
-use middle::infer::InferCtxt;
+use middle::infer::{self, InferCtxt};
 use middle::ty::{self, Ty, TypeFoldable};
 use rustc_data_structures::obligation_forest::{Backtrace, ObligationForest, Error};
 use std::iter;
@@ -441,14 +441,9 @@ fn process_predicate1<'a,'tcx>(selcx: &mut SelectionContext<'a,'tcx>,
                     // of its type, and those types are resolved at
                     // the same time.
                     pending_obligation.stalled_on =
-                        data.skip_binder() // ok b/c this check doesn't care about regions
-                        .input_types()
-                        .iter()
-                        .map(|t| selcx.infcx().resolve_type_vars_if_possible(t))
-                        .filter(|t| t.has_infer_types())
-                        .flat_map(|t| t.walk())
-                        .filter(|t| match t.sty { ty::TyInfer(_) => true, _ => false })
-                        .collect();
+                        infer::type_variables_in(selcx.infcx(),
+                                                 data.skip_binder().input_types());
+                    // binder skip is ok b/c this check doesn't care about regions
 
                     debug!("process_predicate: pending obligation {:?} now stalled on {:?}",
                            selcx.infcx().resolve_type_vars_if_possible(obligation),

@@ -552,6 +552,20 @@ pub fn drain_fulfillment_cx_or_panic<'a,'tcx,T>(span: Span,
     }
 }
 
+pub fn type_variables_in<'s, 'a, 'tcx, I>(infcx: &InferCtxt<'a, 'tcx>,
+                                      iter: I)
+                                      -> Vec<Ty<'tcx>>
+    where I: IntoIterator<Item=&'s Ty<'tcx>>,
+          'tcx: 's
+{
+    iter.into_iter()
+        .map(|t| infcx.resolve_type_vars_if_possible(t))
+        .filter(|t| t.has_infer_types())
+        .flat_map(|t| t.walk())
+        .filter(|t| match t.sty { ty::TyInfer(_) => true, _ => false })
+        .collect()
+}
+
 /// Finishes processes any obligations that remain in the fulfillment
 /// context, and then "freshens" and returns `result`. This is
 /// primarily used during normalization and other cases where

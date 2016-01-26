@@ -145,6 +145,7 @@ mod cast;
 mod closure;
 mod callee;
 mod compare_method;
+mod inferck;
 mod intrinsic;
 mod op;
 
@@ -455,7 +456,11 @@ fn check_bare_fn<'a, 'tcx>(ccx: &CrateCtxt<'a, 'tcx>,
             upvar::closure_analyze_fn(&fcx, fn_id, decl, body);
             fcx.select_obligations_where_possible();
             fcx.check_casts();
-            fcx.select_all_obligations_or_error(); // Casts can introduce new obligations.
+            fcx.select_obligations_where_possible(); // Casts can introduce new obligations.
+
+            writeback::report_
+
+            fcx.select_all_obligations_or_error();
 
             regionck::regionck_fn(&fcx, fn_id, fn_span, decl, body);
             writeback::resolve_type_vars_in_fn(&fcx, decl, body);

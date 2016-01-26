@@ -431,17 +431,6 @@ impl RegionMaps {
         assert!(previous.is_none());
     }
 
-    fn fn_is_enclosed_by(&self, mut sub_fn: ast::NodeId, sup_fn: ast::NodeId) -> bool {
-        let fn_tree = self.fn_tree.borrow();
-        loop {
-            if sub_fn == sup_fn { return true; }
-            match fn_tree.get(&sub_fn) {
-                Some(&s) => { sub_fn = s; }
-                None => { return false; }
-            }
-        }
-    }
-
     fn record_var_scope(&self, var: ast::NodeId, lifetime: CodeExtent) {
         debug!("record_var_scope(sub={:?}, sup={:?})", var, lifetime);
         assert!(var != lifetime.node_id(self));
@@ -582,32 +571,7 @@ impl RegionMaps {
         // then the corresponding scope is a superscope of the other.
 
         if a_ancestors[a_index] != b_ancestors[b_index] {
-            // In this case, the two regions belong to completely
-            // different functions.  Compare those fn for lexical
-            // nesting. The reasoning behind this is subtle.  See the
-            // "Modeling closures" section of the README in
-            // middle::infer::region_inference for more details.
-            let a_root_scope = self.code_extent_data(a_ancestors[a_index]);
-            let b_root_scope = self.code_extent_data(a_ancestors[a_index]);
-            return match (a_root_scope, b_root_scope) {
-                (CodeExtentData::DestructionScope(a_root_id),
-                 CodeExtentData::DestructionScope(b_root_id)) => {
-                    if self.fn_is_enclosed_by(a_root_id, b_root_id) {
-                        // `a` is enclosed by `b`, hence `b` is the ancestor of everything in `a`
-                        scope_b
-                    } else if self.fn_is_enclosed_by(b_root_id, a_root_id) {
-                        // `b` is enclosed by `a`, hence `a` is the ancestor of everything in `b`
-                        scope_a
-                    } else {
-                        // neither fn encloses the other
-                        unreachable!()
-                    }
-                }
-                _ => {
-                    // root ids are always Misc right now
-                    unreachable!()
-                }
-            };
+            unreachable!()
         }
 
         loop {
