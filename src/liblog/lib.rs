@@ -174,7 +174,7 @@
 #![feature(const_fn)]
 #![feature(staged_api)]
 #![feature(static_mutex)]
-
+#![feature(rustc_attrs)]
 use std::cell::RefCell;
 use std::fmt;
 use std::io::{self, Stderr};
@@ -362,6 +362,7 @@ pub struct LogLocation {
 /// logging. This is the second layer of defense about determining whether a
 /// module's log statement should be emitted or not.
 #[doc(hidden)]
+#[rustc_mir(graphviz="/tmp/tmp.MzvHkpri4L/funky.gv")]
 pub fn mod_enabled(level: u32, module: &str) -> bool {
     static INIT: Once = Once::new();
     INIT.call_once(init);

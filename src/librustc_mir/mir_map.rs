@@ -147,7 +147,9 @@ impl<'a, 'm, 'tcx> Visitor<'tcx> for InnerDump<'a,'m,'tcx> {
 
         match build_mir(Cx::new(&infcx), implicit_arg_tys, id, span, decl, body) {
             Ok(mut mir) => {
+                let param_env = &infcx.parameter_environment;
                 simplify_cfg::SimplifyCfg::new().run_on_mir(&mut mir);
+//                drop_flags::DropFlagAnnotator::new(param_env).run_on_mir(&mut mir);
 
                 let meta_item_list = self.attr
                                          .iter()

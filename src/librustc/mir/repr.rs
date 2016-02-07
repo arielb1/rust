@@ -496,7 +496,7 @@ pub struct Projection<'tcx, B, V> {
     pub elem: ProjectionElem<'tcx, V>,
 }
 
-#[derive(Clone, Debug, PartialEq, RustcEncodable, RustcDecodable)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
 pub enum ProjectionElem<'tcx, V> {
     Deref,
     Field(Field),

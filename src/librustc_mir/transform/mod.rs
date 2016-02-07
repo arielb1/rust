@@ -8,6 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+pub mod drop_flags;
 pub mod simplify_cfg;
 pub mod erase_regions;
 mod util;
