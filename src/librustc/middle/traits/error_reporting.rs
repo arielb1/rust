@@ -379,7 +379,8 @@ pub fn report_selection_error<'a, 'tcx>(infcx: &InferCtxt<'a, 'tcx>,
                                 let trait_def = infcx.tcx.lookup_trait_def(trait_ref.def_id());
 
                                 match simp {
-                                    Some(simp) => trait_def.for_each_impl(infcx.tcx, |def_id| {
+                                    Some(simp) => trait_def.for_each_impl(infcx.tcx, |info| {
+                                        let def_id = info.did;
                                         let imp = infcx.tcx.impl_trait_ref(def_id).unwrap();
                                         let imp_simp = fast_reject::simplify_type(infcx.tcx,
                                                                                   imp.self_ty(),
@@ -391,7 +392,8 @@ pub fn report_selection_error<'a, 'tcx>(infcx: &InferCtxt<'a, 'tcx>,
                                         }
                                         impl_candidates.push(imp);
                                     }),
-                                    None => trait_def.for_each_impl(infcx.tcx, |def_id| {
+                                    None => trait_def.for_each_impl(infcx.tcx, |info| {
+                                        let def_id = info.did;
                                         impl_candidates.push(
                                             infcx.tcx.impl_trait_ref(def_id).unwrap());
                                     })

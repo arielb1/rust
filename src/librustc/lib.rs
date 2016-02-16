@@ -27,6 +27,7 @@
 #![feature(box_patterns)]
 #![feature(box_syntax)]
 #![feature(cell_extras)]
+#![feature(core_intrinsics)]
 #![feature(collections)]
 #![feature(const_fn)]
 #![feature(enumset)]

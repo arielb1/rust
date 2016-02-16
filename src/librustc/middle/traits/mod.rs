@@ -61,6 +61,8 @@ pub use self::util::SupertraitDefIds;
 pub use self::util::transitive_bounds;
 pub use self::util::upcast;
 
+pub mod vmatch;
+
 mod coherence;
 mod error_reporting;
 mod fulfill;

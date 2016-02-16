@@ -1317,7 +1317,8 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         def.for_each_relevant_impl(
             self.tcx(),
             obligation.predicate.0.trait_ref.self_ty(),
-            |impl_def_id| {
+            |impl_info| {
+                let impl_def_id = impl_info.did;
                 self.infcx.probe(|snapshot| {
                     if let Ok(_) = self.match_impl(impl_def_id, obligation, snapshot) {
                         candidates.vec.push(ImplCandidate(impl_def_id));
