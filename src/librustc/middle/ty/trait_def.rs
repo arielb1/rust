@@ -21,9 +21,9 @@ use rustc_front::hir;
 use util::nodemap::FnvHashMap;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
-pub struct ImplInfo {
+pub struct ImplInfo<'tcx> {
     pub did: DefId,
-    pub script: Option<vmatch::Script>
+    pub script: Option<&'tcx vmatch::Script>
 }
 
 /// As `TypeScheme` but for a trait ref.
@@ -60,11 +60,11 @@ pub struct TraitDef<'tcx> {
 
     /// Impls of the trait.
     nonblanket_impls: RefCell<
-        FnvHashMap<fast_reject::SimplifiedType, Vec<ImplInfo>>
+        FnvHashMap<fast_reject::SimplifiedType, Vec<ImplInfo<'tcx>>>
     >,
 
     /// Blanket impls associated with the trait.
-    blanket_impls: RefCell<Vec<ImplInfo>>,
+    blanket_impls: RefCell<Vec<ImplInfo<'tcx>>>,
 
     /// Various flags
     pub flags: Cell<TraitFlags>
@@ -136,9 +136,10 @@ impl<'tcx> TraitDef<'tcx> {
         }
 
         let scheme = tcx.lookup_item_type(impl_def_id);
+        let script = vmatch::compile(&scheme.generics, impl_trait_ref).ok();
         let impl_info = ImplInfo {
             did: impl_def_id,
-            script: vmatch::compile(&scheme.generics, impl_trait_ref).ok()
+            script: script.map(|s| tcx.alloc_vmatch_script(s))
         };
 
         // We don't want to borrow_mut after we already populated all impls,
@@ -160,7 +161,9 @@ impl<'tcx> TraitDef<'tcx> {
         }
     }
 
-    pub fn for_each_impl<F: FnMut(&ImplInfo)>(&self, tcx: &ty::ctxt<'tcx>, mut f: F)  {
+    pub fn for_each_impl<F>(&self, tcx: &ty::ctxt<'tcx>, mut f: F)
+            where F: FnMut(&ImplInfo<'tcx>)
+    {
         self.read_trait_impls(tcx);
 
         tcx.populate_implementations_for_trait_if_necessary(self.trait_ref.def_id);
@@ -178,10 +181,11 @@ impl<'tcx> TraitDef<'tcx> {
 
     /// Iterate over every impl that could possibly match the
     /// self-type `self_ty`.
-    pub fn for_each_relevant_impl<F: FnMut(&ImplInfo)>(&self,
-                                                      tcx: &ty::ctxt<'tcx>,
-                                                      self_ty: Ty<'tcx>,
-                                                      mut f: F)
+    pub fn for_each_relevant_impl<F>(&self,
+                                     tcx: &ty::ctxt<'tcx>,
+                                     self_ty: Ty<'tcx>,
+                                     mut f: F)
+        where F: FnMut(&ImplInfo<'tcx>)
     {
         self.read_trait_impls(tcx);
 
@@ -219,8 +223,8 @@ impl<'tcx> TraitDef<'tcx> {
     }
 
     pub fn borrow_impl_lists<'s>(&'s self, tcx: &ty::ctxt<'tcx>) ->
-        (Ref<'s, Vec<ImplInfo>>,
-         Ref<'s, FnvHashMap<fast_reject::SimplifiedType, Vec<ImplInfo>>>)
+        (Ref<'s, Vec<ImplInfo<'tcx>>>,
+         Ref<'s, FnvHashMap<fast_reject::SimplifiedType, Vec<ImplInfo<'tcx>>>>)
     {
         self.read_trait_impls(tcx);
         (self.blanket_impls.borrow(), self.nonblanket_impls.borrow())

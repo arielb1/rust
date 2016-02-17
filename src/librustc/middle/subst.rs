@@ -58,8 +58,8 @@ impl<'tcx> Substs<'tcx> {
                     r: Vec<ty::Region>)
                     -> Substs<'tcx>
     {
-        Substs::new(VecPerParamSpace::new(t, Vec::new(), Vec::new()),
-                    VecPerParamSpace::new(r, Vec::new(), Vec::new()))
+        Substs::new(VecPerParamSpace::new_types_only(t),
+                    VecPerParamSpace::new_types_only(r))
     }
 
     pub fn new_trait(t: Vec<Ty<'tcx>>,
@@ -68,7 +68,7 @@ impl<'tcx> Substs<'tcx> {
                     -> Substs<'tcx>
     {
         Substs::new(VecPerParamSpace::new(t, vec!(s), Vec::new()),
-                    VecPerParamSpace::new(r, Vec::new(), Vec::new()))
+                    VecPerParamSpace::new_types_only(r))
     }
 
     pub fn erased(t: VecPerParamSpace<Ty<'tcx>>) -> Substs<'tcx>
@@ -319,6 +319,28 @@ impl<T> VecPerParamSpace<T> {
         let mut content = t;
         content.extend(s);
         content.extend(f);
+
+        VecPerParamSpace {
+            type_limit: type_limit,
+            self_limit: self_limit,
+            content: content,
+        }
+    }
+
+    pub fn new_with_self(content: Vec<T>) -> VecPerParamSpace<T> {
+        let type_limit = content.len()-1;
+        let self_limit = content.len();
+
+        VecPerParamSpace {
+            type_limit: type_limit,
+            self_limit: self_limit,
+            content: content,
+        }
+    }
+
+    pub fn new_types_only(content: Vec<T>) -> VecPerParamSpace<T> {
+        let type_limit = content.len();
+        let self_limit = content.len();
 
         VecPerParamSpace {
             type_limit: type_limit,

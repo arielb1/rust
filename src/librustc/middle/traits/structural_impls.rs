@@ -10,6 +10,7 @@
 
 use middle::traits;
 use middle::traits::project::Normalized;
+use middle::traits::vmatch::MatchResult;
 use middle::ty::fold::{TypeFoldable, TypeFolder, TypeVisitor};
 
 use std::fmt;
@@ -251,5 +252,20 @@ impl<'tcx, T: TypeFoldable<'tcx>> TypeFoldable<'tcx> for Normalized<'tcx, T> {
 
     fn super_visit_with<V: TypeVisitor<'tcx>>(&self, visitor: &mut V) -> bool {
         self.value.visit_with(visitor) || self.obligations.visit_with(visitor)
+    }
+}
+
+impl<'tcx> TypeFoldable<'tcx> for MatchResult<'tcx> {
+    fn super_fold_with<F: TypeFolder<'tcx>>(&self, folder: &mut F) -> Self {
+        MatchResult {
+            eq_tys: self.eq_tys.fold_with(folder),
+            eq_regions: self.eq_regions.fold_with(folder),
+            substs: self.substs.fold_with(folder)
+        }
+    }
+
+    fn super_visit_with<V: TypeVisitor<'tcx>>(&self, visitor: &mut V) -> bool {
+        self.eq_tys.visit_with(visitor) || self.eq_regions.visit_with(visitor) ||
+            self.substs.visit_with(visitor)
     }
 }

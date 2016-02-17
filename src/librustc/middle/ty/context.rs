@@ -63,6 +63,7 @@ pub struct CtxtArenas<'tcx> {
     // references
     trait_defs: TypedArena<ty::TraitDef<'tcx>>,
     adt_defs: TypedArena<ty::AdtDefData<'tcx, 'tcx>>,
+    scripts: TypedArena<traits::vmatch::Script>,
 }
 
 impl<'tcx> CtxtArenas<'tcx> {
@@ -75,7 +76,8 @@ impl<'tcx> CtxtArenas<'tcx> {
             stability: TypedArena::new(),
 
             trait_defs: TypedArena::new(),
-            adt_defs: TypedArena::new()
+            adt_defs: TypedArena::new(),
+            scripts: TypedArena::new(),
         }
     }
 }
@@ -96,6 +98,8 @@ pub struct CommonTypes<'tcx> {
     pub f32: Ty<'tcx>,
     pub f64: Ty<'tcx>,
     pub err: Ty<'tcx>,
+
+    pub re_static: &'tcx ty::Region
 }
 
 pub struct Tables<'tcx> {
@@ -183,11 +187,13 @@ impl<'tcx> Tables<'tcx> {
 }
 
 impl<'tcx> CommonTypes<'tcx> {
-    fn new(arena: &'tcx TypedArena<TyS<'tcx>>,
-           interner: &RefCell<FnvHashMap<InternedTy<'tcx>, Ty<'tcx>>>)
+    fn new(arena: &'tcx CtxtArenas<'tcx>,
+           interner: &RefCell<FnvHashMap<InternedTy<'tcx>, Ty<'tcx>>>,
+           region_interner: &RefCell<FnvHashMap<&'tcx Region, &'tcx Region>>)
            -> CommonTypes<'tcx>
     {
         let mk = |sty| ctxt::intern_ty(arena, interner, sty);
+        let mk_r = |r| ctxt::intern_region(arena, region_interner, r);
         CommonTypes {
             bool: mk(TyBool),
             char: mk(TyChar),
@@ -204,6 +210,7 @@ impl<'tcx> CommonTypes<'tcx> {
             u64: mk(TyUint(ast::UintTy::U64)),
             f32: mk(TyFloat(ast::FloatTy::F32)),
             f64: mk(TyFloat(ast::FloatTy::F64)),
+            re_static: mk_r(Region::ReStatic),
         }
     }
 }
@@ -476,6 +483,12 @@ impl<'tcx> ctxt<'tcx> {
         interned
     }
 
+    pub fn alloc_vmatch_script(&self, script: traits::vmatch::Script)
+        -> &'tcx traits::vmatch::Script
+    {
+        self.arenas.scripts.alloc(script)
+    }
+
     pub fn store_free_region_map(&self, id: NodeId, map: FreeRegionMap) {
         if self.free_region_maps.borrow_mut().insert(id, map).is_some() {
             self.sess.bug(&format!("Tried to overwrite interned FreeRegionMap for NodeId {:?}",
@@ -508,7 +521,8 @@ impl<'tcx> ctxt<'tcx> {
                                  where F: FnOnce(&ctxt<'tcx>) -> R
     {
         let interner = RefCell::new(FnvHashMap());
-        let common_types = CommonTypes::new(&arenas.type_, &interner);
+        let region_interner = RefCell::new(FnvHashMap());
+        let common_types = CommonTypes::new(arenas, &interner, &region_interner);
         let dep_graph = map.dep_graph.clone();
         let fulfilled_predicates = traits::GlobalFulfilledPredicates::new(dep_graph.clone());
         tls::enter(ctxt {
@@ -516,7 +530,7 @@ impl<'tcx> ctxt<'tcx> {
             interner: interner,
             substs_interner: RefCell::new(FnvHashMap()),
             bare_fn_interner: RefCell::new(FnvHashMap()),
-            region_interner: RefCell::new(FnvHashMap()),
+            region_interner: region_interner,
             stability_interner: RefCell::new(FnvHashMap()),
             dep_graph: dep_graph.clone(),
             types: common_types,
@@ -795,16 +809,24 @@ impl<'tcx> ctxt<'tcx> {
     }
 
     pub fn mk_region(&self, region: Region) -> &'tcx Region {
-        if let Some(region) = self.region_interner.borrow().get(&region) {
+        Self::intern_region(self.arenas, &self.region_interner, region)
+    }
+
+    fn intern_region(arenas: &'tcx CtxtArenas<'tcx>,
+                     interner: &RefCell<FnvHashMap<&'tcx Region, &'tcx Region>>,
+                     region: Region)
+                     -> &'tcx Region
+    {
+        if let Some(region) = interner.borrow().get(&region) {
             return *region;
         }
 
-        let region = self.arenas.region.alloc(region);
-        self.region_interner.borrow_mut().insert(region, region);
+        let region = arenas.region.alloc(region);
+        interner.borrow_mut().insert(region, region);
         region
     }
 
-    fn intern_ty(type_arena: &'tcx TypedArena<TyS<'tcx>>,
+    fn intern_ty(arenas: &'tcx CtxtArenas<'tcx>,
                  interner: &RefCell<FnvHashMap<InternedTy<'tcx>, Ty<'tcx>>>,
                  st: TypeVariants<'tcx>)
                  -> Ty<'tcx> {
@@ -818,9 +840,9 @@ impl<'tcx> ctxt<'tcx> {
             let flags = super::flags::FlagComputation::for_sty(&st);
 
             let ty = match () {
-                () => type_arena.alloc(TyS { sty: st,
-                                             flags: Cell::new(flags.flags),
-                                             region_depth: flags.depth, }),
+                () => arenas.type_.alloc(TyS { sty: st,
+                                               flags: Cell::new(flags.flags),
+                                               region_depth: flags.depth, }),
             };
 
             interner.insert(InternedTy { ty: ty }, ty);
@@ -835,7 +857,7 @@ impl<'tcx> ctxt<'tcx> {
     // Interns a type/name combination, stores the resulting box in cx.interner,
     // and returns the box as cast to an unsafe ptr (see comments for Ty above).
     pub fn mk_ty(&self, st: TypeVariants<'tcx>) -> Ty<'tcx> {
-        ctxt::intern_ty(&self.arenas.type_, &self.interner, st)
+        ctxt::intern_ty(self.arenas, &self.interner, st)
     }
 
     pub fn mk_mach_int(&self, tm: ast::IntTy) -> Ty<'tcx> {

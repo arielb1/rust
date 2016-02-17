@@ -454,6 +454,29 @@ impl<'tcx> TypeFoldable<'tcx> for ty::Region {
     }
 }
 
+impl<'a, 'tcx: 'a> TypeFoldable<'tcx> for &'a ty::Region {
+    fn super_fold_with<F: TypeFolder<'tcx>>(&self, _folder: &mut F) -> Self {
+        self
+    }
+
+    fn fold_with<F: TypeFolder<'tcx>>(&self, folder: &mut F) -> Self {
+        let res = folder.fold_region(**self);
+        if ty::Region::eq(&res, self) {
+            *self
+        } else {
+            folder.tcx().mk_region(res)
+        }
+    }
+
+    fn super_visit_with<V: TypeVisitor<'tcx>>(&self, _visitor: &mut V) -> bool {
+        false
+    }
+
+    fn visit_with<V: TypeVisitor<'tcx>>(&self, visitor: &mut V) -> bool {
+        visitor.visit_region(**self)
+    }
+}
+
 impl<'tcx> TypeFoldable<'tcx> for subst::Substs<'tcx> {
     fn super_fold_with<F: TypeFolder<'tcx>>(&self, folder: &mut F) -> Self {
         let regions = match self.regions {
