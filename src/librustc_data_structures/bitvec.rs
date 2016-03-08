@@ -47,6 +47,16 @@ impl BitVector {
         changed
     }
 
+    /// Returns true if the bit has changed.
+    pub fn remove(&mut self, bit: usize) -> bool {
+        let (word, mask) = word_mask(bit);
+        let data = &mut self.data[word];
+        let value = *data;
+        let new_value = value & !mask;
+        *data = new_value;
+        new_value != value
+    }
+
     pub fn grow(&mut self, num_bits: usize) {
         let num_words = u64s(num_bits);
         let extra_words = self.data.len() - num_words;
@@ -236,6 +246,28 @@ fn bitvec_iter_works_3() {
     bitvec.insert(255);
     bitvec.insert(319);
     assert_eq!(bitvec.iter().collect::<Vec<_>>(), [0, 127, 191, 255, 319]);
+}
+
+#[test]
+fn bitvec_remove_works() {
+    let mut bitvec = BitVec::new(0);
+    assert_eq!(bitvec.iter().collect::<Vec<_>>(), []);
+    bitvec.insert(42);
+    assert_eq!(bitvec.iter().collect::<Vec<_>>(), [42]);
+    bitvec.insert(137);
+    assert_eq!(bitvec.iter().collect::<Vec<_>>(), [42, 137]);
+    bitvec.remove(42);
+    assert_eq!(bitvec.iter().collect::<Vec<_>>(), [137]);
+    bitvec.insert(512);
+    assert_eq!(bitvec.iter().collect::<Vec<_>>(), [137, 512]);
+    bitvec.insert(42);
+    assert_eq!(bitvec.iter().collect::<Vec<_>>(), [42, 137, 512]);
+    bitvec.remove(512);
+    assert_eq!(bitvec.iter().collect::<Vec<_>>(), [42, 137]);
+    bitvec.remove(137);
+    assert_eq!(bitvec.iter().collect::<Vec<_>>(), [42]);
+    bitvec.remove(42);
+    assert_eq!(bitvec.iter().collect::<Vec<_>>(), []);
 }
 
 #[test]

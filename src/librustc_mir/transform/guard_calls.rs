@@ -44,23 +44,24 @@ impl ClearDeadBlocks {
     }
 
     fn clear_dead_blocks(&self, mir: &mut Mir) {
-        let mut seen = BasicBlockSet::new(mir);
+        let mut seen = vec![false; mir.basic_blocks.len()];
 
         // These blocks are always required.
-        seen.insert(START_BLOCK);
-        seen.insert(END_BLOCK);
+        seen[START_BLOCK.index()] = true;
+        seen[END_BLOCK.index()] = true;
 
         let mut worklist = vec![START_BLOCK];
         while let Some(bb) = worklist.pop() {
-            for &succ in mir.basic_block_data(bb).terminator().successors().iter() {
-                if seen.insert(succ) {
-                    worklist.push(succ);
+            for succ in mir.basic_block_data(bb).terminator().successors().iter() {
+                if !seen[succ.index()] {
+                    seen[succ.index()] = true;
+                    worklist.push(*succ);
                 }
             }
         }
 
-        for (n, block) in mir.basic_blocks.iter().enumerate() {
-            if !seen.contains(block) {
+        for (n, (block, seen)) in mir.basic_blocks.iter_mut().zip(seen).enumerate() {
+            if !seen {
                 info!("clearing block #{}: {:?}", n, block);
                 *block = BasicBlockData {
                     statements: vec![],

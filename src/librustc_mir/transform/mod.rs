@@ -11,5 +11,6 @@
 pub mod clear_dead_blocks;
 pub mod simplify_cfg;
 pub mod erase_regions;
+pub mod guard_calls;
 pub mod no_landing_pads;
 pub mod type_check;

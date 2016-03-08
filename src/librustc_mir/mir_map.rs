@@ -155,6 +155,7 @@ impl<'a, 'm, 'tcx> Visitor<'tcx> for InnerDump<'a,'m,'tcx> {
                 if self.tcx.sess.opts.mir_opt_level > 0 {
                     simplify_cfg::SimplifyCfg::new().run_on_mir(&mut mir, &infcx);
                 }
+                guard_calls::GuardCalls.run_on_mir(&mut mir, &infcx);
                 let meta_item_list = self.attr
                                          .iter()
                                          .flat_map(|a| a.meta_item_list())

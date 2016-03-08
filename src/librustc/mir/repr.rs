@@ -14,11 +14,12 @@ use middle::def_id::DefId;
 use middle::subst::Substs;
 use middle::ty::{self, AdtDef, ClosureSubsts, FnOutput, Region, Ty};
 use rustc_back::slice;
+use rustc_data_structures::bitvec::{self, BitVector};
 use rustc_front::hir::InlineAsm;
 use std::ascii;
 use std::borrow::{Cow};
 use std::fmt::{self, Debug, Formatter, Write};
-use std::{iter, u32};
+use std::{iter, u32, mem};
 use std::ops::{Index, IndexMut};
 use syntax::ast::{self, Name};
 use syntax::codemap::Span;
@@ -203,6 +204,36 @@ impl BasicBlock {
 impl Debug for BasicBlock {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
         write!(fmt, "bb{}", self.0)
+    }
+}
+
+pub struct BasicBlockSet(BitVector);
+
+impl BasicBlockSet {
+    #[inline]
+    pub fn new(mir: &Mir) -> Self {
+        BasicBlockSet(BitVector::new(mir.basic_blocks.len()))
+    }
+
+    #[inline]
+    pub fn insert(&mut self, key: BasicBlock) -> bool {
+        self.0.insert(key.0 as usize)
+    }
+
+    #[inline]
+    pub fn remove(&mut self, key: BasicBlock) -> bool {
+        self.0.remove(key.0 as usize)
+    }
+
+    #[inline]
+    pub fn contains(&self, key: BasicBlock) -> bool {
+        self.0.contains(key.0 as usize)
+    }
+
+    #[inline]
+    pub fn iter(&self) -> bitvec::BitVectorIter
+    {
+        self.0.iter()
     }
 }
 

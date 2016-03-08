@@ -38,3 +38,4 @@ mod hair;
 pub mod mir_map;
 pub mod pretty;
 pub mod transform;
+pub mod util;
