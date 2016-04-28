@@ -87,12 +87,9 @@ enum Annotation {
     ExitScope(ScopeId),
 }
 
-pub fn write_mir_fn<'tcx>(tcx: &TyCtxt<'tcx>,
-                          node_id: NodeId,
-                          mir: &Mir<'tcx>,
-                          w: &mut Write,
-                          auxiliary: Option<&ScopeAuxiliaryVec>)
-                          -> io::Result<()> {
+fn scope_entry_exit_annotations(auxiliary: Option<&ScopeAuxiliaryVec>)
+                                -> FnvHashMap<Location, Vec<Annotation>>
+{
     // compute scope/entry exit annotations
     let mut annotations = FnvHashMap();
     if let Some(auxiliary) = auxiliary {
@@ -110,7 +107,16 @@ pub fn write_mir_fn<'tcx>(tcx: &TyCtxt<'tcx>,
             }
         }
     }
+    return annotations;
+}
 
+pub fn write_mir_fn<'tcx>(tcx: &TyCtxt<'tcx>,
+                          node_id: NodeId,
+                          mir: &Mir<'tcx>,
+                          w: &mut Write,
+                          auxiliary: Option<&ScopeAuxiliaryVec>)
+                          -> io::Result<()> {
+    let annotations = scope_entry_exit_annotations(auxiliary);
     write_mir_intro(tcx, node_id, mir, w)?;
     for block in mir.all_basic_blocks() {
         write_basic_block(tcx, block, mir, w, &annotations)?;
