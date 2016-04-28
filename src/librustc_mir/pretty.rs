@@ -222,7 +222,15 @@ fn write_scope_tree(tcx: &TyCtxt,
 /// local variables (both user-defined bindings and compiler temporaries).
 fn write_mir_intro(tcx: &TyCtxt, nid: NodeId, mir: &Mir, w: &mut Write)
                    -> io::Result<()> {
-    write!(w, "fn {}(", tcx.node_path_str(nid))?;
+    write_mir_fn_sig(tcx, &tcx.map.node_to_string(nid), mir, w)?;
+    writeln!(w, " {{")?;
+    write_mir_fn_decls(tcx, mir, w)
+}
+
+fn write_mir_fn_sig(_: &ty::TyCtxt, name: &str, mir: &Mir, w: &mut Write)
+                    -> io::Result<()>
+{
+    write!(w, "fn {}(", name)?;
 
     // fn argument types.
     for (i, arg) in mir.arg_decls.iter().enumerate() {
@@ -236,12 +244,14 @@ fn write_mir_intro(tcx: &TyCtxt, nid: NodeId, mir: &Mir, w: &mut Write)
 
     // fn return type.
     match mir.return_ty {
-        ty::FnOutput::FnConverging(ty) => write!(w, "{}", ty)?,
-        ty::FnOutput::FnDiverging => write!(w, "!")?,
+        ty::FnOutput::FnConverging(ty) => write!(w, "{}", ty),
+        ty::FnOutput::FnDiverging => write!(w, "!"),
     }
+}
 
-    writeln!(w, " {{")?;
-
+fn write_mir_fn_decls(tcx: &ty::TyCtxt, mir: &Mir, w: &mut Write)
+                      -> io::Result<()>
+{
     // User variable types (including the user's name in a comment).
     for (i, var) in mir.var_decls.iter().enumerate() {
         write!(w, "{}let ", INDENT)?;
