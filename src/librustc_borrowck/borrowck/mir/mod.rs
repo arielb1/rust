@@ -62,7 +62,7 @@ pub fn borrowck_mir<'b, 'a: 'b, 'tcx: 'a>(
         do_dataflow(bcx, mir, id, attributes, move_data, MaybeInitializedLvals::default());
     let (move_data, flow_uninits) =
         do_dataflow(bcx, mir, id, attributes, move_data, MaybeUninitializedLvals::default());
-    
+
     let mut mbcx = MirBorrowckCtxt {
         bcx: bcx,
         mir: mir,
