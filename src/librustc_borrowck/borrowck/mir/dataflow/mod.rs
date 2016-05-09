@@ -36,7 +36,7 @@ pub trait Dataflow {
     fn dataflow(&mut self);
 }
 
-impl<'b, 'a: 'b, 'tcx: 'a, BD> Dataflow for MirBorrowckCtxtPreDataflow<'b, 'a, 'tcx, BD>
+impl<'a, 'tcx: 'a, BD> Dataflow for MirBorrowckCtxtPreDataflow<'a, 'tcx, BD>
     where BD: BitDenotation, BD::Bit: Debug, BD::Ctxt: HasMoveData<'tcx>
 {
     fn dataflow(&mut self) {
@@ -156,7 +156,7 @@ impl<'b, 'a: 'b, 'tcx: 'a, BD> PropagationContext<'b, 'a, 'tcx, BD>
     }
 }
 
-impl<'b, 'a: 'b, 'tcx: 'a, BD> MirBorrowckCtxtPreDataflow<'b, 'a, 'tcx, BD>
+impl<'a, 'tcx: 'a, BD> MirBorrowckCtxtPreDataflow<'a, 'tcx, BD>
     where BD: BitDenotation, BD::Bit: Debug, BD::Ctxt: HasMoveData<'tcx>
 {
     fn path(context: &str, prepost: &str, path: &str) -> PathBuf {
@@ -227,6 +227,9 @@ impl<'a, 'tcx: 'a, O> DataflowAnalysis<'a, 'tcx, O>
     pub fn results(self) -> (O::Ctxt, DataflowResults<O>) {
         (self.ctxt, DataflowResults(self.flow_state))
     }
+
+    pub fn tcx(&self) -> &'a TyCtxt<'tcx> { self.tcx }
+    pub fn mir(&self) -> &'a Mir<'tcx> { self.mir }
 }
 
 #[derive(Debug)]
@@ -322,7 +325,7 @@ impl<O: BitDenotation> DataflowState<O> {
 
         let bits_per_block = self.operator.bits_per_block(ctxt);
         let usize_bits: usize = mem::size_of::<usize>() * 8;
-            
+
         for (word_index, &word) in words.iter().enumerate() {
             if word != 0 {
                 let base_index = word_index * usize_bits;
@@ -383,7 +386,7 @@ pub trait BitDenotation: DataflowOperator {
     /// the name to be reasonably short, again because it will be
     /// plugged into a filename.
     fn name() -> &'static str;
-    
+
     /// Size of each bitvector allocated for each block in the analysis.
     fn bits_per_block(&self, &Self::Ctxt) -> usize;
 
@@ -504,7 +507,7 @@ impl<'a, 'tcx: 'a, D> DataflowAnalysis<'a, 'tcx, D>
                            mir: mir,
                            tcx: tcx,
         }
-                           
+
     }
 }
 
@@ -826,7 +829,7 @@ impl<'a, 'tcx> BitDenotation for MaybeInitializedLvals<'a, 'tcx> {
         // let move_paths = &move_data.move_paths;
         // let path_map = &move_data.path_map;
         // let rev_lookup = &move_data.rev_lookup;
-        // 
+        //
         // for i in 0..(mir.arg_decls.len() as u32) {
         //     let lvalue = repr::Lvalue::Arg(i);
         //     let move_path_index = rev_lookup.find(&lvalue);
