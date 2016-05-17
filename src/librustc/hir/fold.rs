@@ -42,10 +42,6 @@ pub trait Folder : Sized {
         noop_fold_meta_item(meta_item, self)
     }
 
-    fn fold_view_path(&mut self, view_path: P<ViewPath>) -> P<ViewPath> {
-        noop_fold_view_path(view_path, self)
-    }
-
     fn fold_foreign_item(&mut self, ni: ForeignItem) -> ForeignItem {
         noop_fold_foreign_item(ni, self)
     }
@@ -134,8 +130,12 @@ pub trait Folder : Sized {
         noop_fold_usize(i, self)
     }
 
-    fn fold_path(&mut self, p: Path) -> Path {
-        noop_fold_path(p, self)
+    fn fold_spath(&mut self, p: SPath) -> SPath {
+        noop_fold_spath(p, self)
+    }
+
+    fn fold_qpath(&mut self, p: QPath) -> QPath {
+        noop_fold_qpath(p, self)
     }
 
     fn fold_path_parameters(&mut self, p: PathParameters) -> PathParameters {
@@ -261,40 +261,6 @@ pub fn noop_fold_meta_items<T: Folder>(meta_items: HirVec<P<MetaItem>>,
     meta_items.move_map(|x| fld.fold_meta_item(x))
 }
 
-pub fn noop_fold_view_path<T: Folder>(view_path: P<ViewPath>, fld: &mut T) -> P<ViewPath> {
-    view_path.map(|Spanned { node, span }| {
-        Spanned {
-            node: match node {
-                ViewPathSimple(name, path) => {
-                    ViewPathSimple(name, fld.fold_path(path))
-                }
-                ViewPathGlob(path) => {
-                    ViewPathGlob(fld.fold_path(path))
-                }
-                ViewPathList(path, path_list_idents) => {
-                    ViewPathList(fld.fold_path(path),
-                                 path_list_idents.move_map(|path_list_ident| {
-                                     Spanned {
-                                         node: match path_list_ident.node {
-                                             PathListIdent { id, name, rename } => PathListIdent {
-                                                 id: fld.new_id(id),
-                                                 name: name,
-                                                 rename: rename,
-                                             },
-                                             PathListMod { id, rename } => PathListMod {
-                                                 id: fld.new_id(id),
-                                                 rename: rename,
-                                             },
-                                         },
-                                         span: fld.new_span(path_list_ident.span),
-                                     }
-                                 }))
-                }
-            },
-            span: fld.new_span(span),
-        }
-    })
-}
 
 pub fn fold_attrs<T: Folder>(attrs: HirVec<Attribute>, fld: &mut T) -> HirVec<Attribute> {
     attrs.move_flat_map(|x| fld.fold_attribute(x))
@@ -355,15 +321,7 @@ pub fn noop_fold_ty<T: Folder>(t: P<Ty>, fld: &mut T) -> P<Ty> {
                     }))
                 }
                 TyTup(tys) => TyTup(tys.move_map(|ty| fld.fold_ty(ty))),
-                TyPath(qself, path) => {
-                    let qself = qself.map(|QSelf { ty, position }| {
-                        QSelf {
-                            ty: fld.fold_ty(ty),
-                            position: position,
-                        }
-                    });
-                    TyPath(qself, fld.fold_path(path))
-                }
+                TyPath(path) => TyPath(fld.fold_qpath(path)),
                 TyObjectSum(ty, bounds) => {
                     TyObjectSum(fld.fold_ty(ty), fld.fold_bounds(bounds))
                 }
@@ -415,16 +373,34 @@ pub fn noop_fold_usize<T: Folder>(i: usize, _: &mut T) -> usize {
     i
 }
 
-pub fn noop_fold_path<T: Folder>(Path { global, segments, span }: Path, fld: &mut T) -> Path {
-    Path {
-        global: global,
-        segments: segments.move_map(|PathSegment { identifier, parameters }| {
-            PathSegment {
-                identifier: fld.fold_ident(identifier),
-                parameters: fld.fold_path_parameters(parameters),
-            }
-        }),
+pub fn noop_fold_spath<T: Folder>(SPath { span, printed, def, params }: SPath, fld: &mut T) -> SPath {
+    SPath {
         span: fld.new_span(span),
+        printed: printed,
+        def: def,
+        params: fld.fold_path_parameters(params),
+    }
+}
+
+pub fn noop_fold_qpath<T: Folder>(QPath { span, printed, kind }: SPath, fld: &mut T) -> QPath {
+    QPath {
+        span: fld.new_span(span),
+        printed: printed,
+        kind: match kind {
+            PathKind::Simple(def, params) => PathKind::Simple(
+                def,
+                fld.fold_path_parameters(params)
+            ),
+            PathKind::TypeProjection(ty, name) => PathKind::TypeProjection(
+                fld.fold_ty(ty),
+                fld.fold_name(name)
+            ),
+            PathKind::TraitProjection(ty, trait_, name) => PathKind::TraitProjection(
+                fld.fold_ty(ty),
+                trait_.map(|trait_| fld.fold_qpath(trait_)),
+                fld.fold_name(name)
+            )
+        }
     }
 }
 
@@ -719,9 +695,6 @@ pub fn noop_fold_block<T: Folder>(b: P<Block>, folder: &mut T) -> P<Block> {
 pub fn noop_fold_item_underscore<T: Folder>(i: Item_, folder: &mut T) -> Item_ {
     match i {
         ItemExternCrate(string) => ItemExternCrate(string),
-        ItemUse(view_path) => {
-            ItemUse(folder.fold_view_path(view_path))
-        }
         ItemStatic(t, m, e) => {
             ItemStatic(folder.fold_ty(t), m, folder.fold_expr(e))
         }
@@ -935,13 +908,7 @@ pub fn noop_fold_pat<T: Folder>(p: P<Pat>, folder: &mut T) -> P<Pat> {
                     PatKind::TupleStruct(folder.fold_path(pth),
                             pats.map(|pats| pats.move_map(|x| folder.fold_pat(x))))
                 }
-                PatKind::Path(pth) => {
-                    PatKind::Path(folder.fold_path(pth))
-                }
-                PatKind::QPath(qself, pth) => {
-                    let qself = QSelf { ty: folder.fold_ty(qself.ty), ..qself };
-                    PatKind::QPath(qself, folder.fold_path(pth))
-                }
+                PatKind::Path(path) => PatKind::Path(folder.fold_spath(path)),
                 PatKind::Struct(pth, fields, etc) => {
                     let pth = folder.fold_path(pth);
                     let fs = fields.move_map(|f| {
@@ -1052,15 +1019,7 @@ pub fn noop_fold_expr<T: Folder>(Expr { id, node, span, attrs }: Expr, folder: &
             ExprIndex(el, er) => {
                 ExprIndex(folder.fold_expr(el), folder.fold_expr(er))
             }
-            ExprPath(qself, path) => {
-                let qself = qself.map(|QSelf { ty, position }| {
-                    QSelf {
-                        ty: folder.fold_ty(ty),
-                        position: position,
-                    }
-                });
-                ExprPath(qself, folder.fold_path(path))
-            }
+            ExprPath(path) => ExprPath(folder.fold_qpath(path)),
             ExprBreak(opt_ident) => ExprBreak(opt_ident.map(|label| {
                 respan(folder.new_span(label.span), folder.fold_ident(label.node))
             })),

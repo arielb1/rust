@@ -180,14 +180,11 @@ pub trait Visitor<'v> : Sized {
     fn visit_lifetime_def(&mut self, lifetime: &'v LifetimeDef) {
         walk_lifetime_def(self, lifetime)
     }
-    fn visit_path(&mut self, path: &'v Path, _id: NodeId) {
-        walk_path(self, path)
+    fn visit_qpath(&mut self, path: &'v QPath, _id: NodeId) {
+        walk_qpath(self, path)
     }
-    fn visit_path_list_item(&mut self, prefix: &'v Path, item: &'v PathListItem) {
-        walk_path_list_item(self, prefix, item)
-    }
-    fn visit_path_segment(&mut self, path_span: Span, path_segment: &'v PathSegment) {
-        walk_path_segment(self, path_span, path_segment)
+    fn visit_spath(&mut self, path: &'v SPath, _id: NodeId) {
+        walk_spath(self, path)
     }
     fn visit_path_parameters(&mut self, path_span: Span, path_parameters: &'v PathParameters) {
         walk_path_parameters(self, path_span, path_parameters)
@@ -276,26 +273,6 @@ pub fn walk_item<'v, V: Visitor<'v>>(visitor: &mut V, item: &'v Item) {
     match item.node {
         ItemExternCrate(opt_name) => {
             walk_opt_name(visitor, item.span, opt_name)
-        }
-        ItemUse(ref vp) => {
-            match vp.node {
-                ViewPathSimple(name, ref path) => {
-                    visitor.visit_name(vp.span, name);
-                    visitor.visit_path(path, item.id);
-                }
-                ViewPathGlob(ref path) => {
-                    visitor.visit_path(path, item.id);
-                }
-                ViewPathList(ref prefix, ref list) => {
-                    if !list.is_empty() {
-                        for item in list {
-                            visitor.visit_path_list_item(prefix, item)
-                        }
-                    } else {
-                        visitor.visit_path(prefix, item.id);
-                    }
-                }
-            }
         }
         ItemStatic(ref typ, _, ref expr) |
         ItemConst(ref typ, ref expr) => {
@@ -419,28 +396,21 @@ pub fn walk_ty<'v, V: Visitor<'v>>(visitor: &mut V, typ: &'v Ty) {
     }
 }
 
-pub fn walk_path<'v, V: Visitor<'v>>(visitor: &mut V, path: &'v Path) {
-    for segment in &path.segments {
-        visitor.visit_path_segment(path.span, segment);
+pub fn walk_qpath<'v, V: Visitor<'v>>(visitor: &mut V, path: &'v QPath) {
+    match path.kind {
+        PathKind::Simple(_, params) => {
+            visitor.visit_path_parameters(&path.params)
+        }
+        PathKind::TypeProjection(ty, _name) => visitor.visit_ty(ty),
+        PathKind::TraitProjection(ty, trait_, _name) => {
+            visitor.visit_ty(ty);
+            visitor.visit_spath(trait_)
+        }
     }
 }
 
-pub fn walk_path_list_item<'v, V: Visitor<'v>>(visitor: &mut V,
-                                               prefix: &'v Path,
-                                               item: &'v PathListItem) {
-    for segment in &prefix.segments {
-        visitor.visit_path_segment(prefix.span, segment);
-    }
-
-    walk_opt_name(visitor, item.span, item.node.name());
-    walk_opt_name(visitor, item.span, item.node.rename());
-}
-
-pub fn walk_path_segment<'v, V: Visitor<'v>>(visitor: &mut V,
-                                             path_span: Span,
-                                             segment: &'v PathSegment) {
-    visitor.visit_ident(path_span, segment.identifier);
-    visitor.visit_path_parameters(path_span, &segment.parameters);
+pub fn walk_spath<'v, V: Visitor<'v>>(visitor: &mut V, path: &'v SPath) {
+    visitor.visit_path_parameters(&path.params);
 }
 
 pub fn walk_path_parameters<'v, V: Visitor<'v>>(visitor: &mut V,
@@ -468,20 +438,16 @@ pub fn walk_assoc_type_binding<'v, V: Visitor<'v>>(visitor: &mut V,
 pub fn walk_pat<'v, V: Visitor<'v>>(visitor: &mut V, pattern: &'v Pat) {
     match pattern.node {
         PatKind::TupleStruct(ref path, ref opt_children) => {
-            visitor.visit_path(path, pattern.id);
+            visitor.visit_spath(path, pattern.id);
             if let Some(ref children) = *opt_children {
                 walk_list!(visitor, visit_pat, children);
             }
         }
         PatKind::Path(ref path) => {
-            visitor.visit_path(path, pattern.id);
-        }
-        PatKind::QPath(ref qself, ref path) => {
-            visitor.visit_ty(&qself.ty);
-            visitor.visit_path(path, pattern.id)
+            visitor.visit_qpath(path, pattern.id);
         }
         PatKind::Struct(ref path, ref fields, _) => {
-            visitor.visit_path(path, pattern.id);
+            visitor.visit_spath(path, pattern.id);
             for field in fields {
                 visitor.visit_name(field.span, field.node.name);
                 visitor.visit_pat(&field.node.pat)
@@ -565,7 +531,7 @@ pub fn walk_generics<'v, V: Visitor<'v>>(visitor: &mut V, generics: &'v Generics
                                                                     ref path,
                                                                     ref ty,
                                                                     ..}) => {
-                visitor.visit_path(path, id);
+                visitor.visit_qpath(path, id);
                 visitor.visit_ty(ty);
             }
         }
@@ -925,20 +891,6 @@ impl<'a, 'v, O: IdVisitingOperation> Visitor<'v> for IdVisitor<'a, O> {
         self.skip_members = true;
 
         self.operation.visit_id(item.id);
-        match item.node {
-            ItemUse(ref view_path) => {
-                match view_path.node {
-                    ViewPathSimple(_, _) |
-                    ViewPathGlob(_) => {}
-                    ViewPathList(_, ref paths) => {
-                        for path in paths {
-                            self.operation.visit_id(path.node.id())
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
         walk_item(self, item);
 
         self.skip_members = false;

@@ -303,7 +303,6 @@ impl<'ast> intravisit::Visitor<'ast> for DefCollector<'ast> {
                 DefPathData::TypeNs(i.name),
             hir::ItemStatic(..) | hir::ItemConst(..) | hir::ItemFn(..) =>
                 DefPathData::ValueNs(i.name),
-            hir::ItemUse(..) => DefPathData::Misc,
         };
         let def = self.create_def(i.id, def_data);
 

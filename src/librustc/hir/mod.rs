@@ -20,7 +20,6 @@ pub use self::FunctionRetTy::*;
 pub use self::ForeignItem_::*;
 pub use self::Item_::*;
 pub use self::Mutability::*;
-pub use self::PathListItem_::*;
 pub use self::PrimTy::*;
 pub use self::Stmt_::*;
 pub use self::TraitItem_::*;
@@ -28,7 +27,6 @@ pub use self::Ty_::*;
 pub use self::TyParamBound::*;
 pub use self::UnOp::*;
 pub use self::UnsafeSource::*;
-pub use self::ViewPath_::*;
 pub use self::Visibility::{Public, Inherited};
 pub use self::PathParameters::*;
 
@@ -157,66 +155,52 @@ pub struct LifetimeDef {
 }
 
 /// A "Path" is essentially Rust's notion of a name; for instance:
-/// std::cmp::PartialEq  .  It's represented as a sequence of identifiers,
-/// along with a bunch of supporting information.
-#[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash)]
-pub struct Path {
+/// std::cmp::PartialEq.
+#[derive(Clone, Debug, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash)]
+pub struct SPath {
     pub span: Span,
-    /// A `::foo` path, is relative to the crate root rather than current
-    /// module (like paths in an import).
-    pub global: bool,
-    /// The segments in the path: the things separated by `::`.
-    pub segments: HirVec<PathSegment>,
+    // FIXME: I don't think we need this
+    /// The printed path, for error reporting.
+    pub printed: String,
+    /// The definition of the path
+    pub def: Def,
+    /// The parameters to the path
+    pub params: PathParameters
 }
 
-impl fmt::Debug for Path {
+impl fmt::Display for SPath {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "path({})", print::path_to_string(self))
+        fmt::Display::fmt(&self.printed, f)
     }
 }
 
-impl fmt::Display for Path {
+/// A "Path" is essentially Rust's notion of a name; for instance:
+/// std::cmp::PartialEq.
+#[derive(Clone, Debug, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash)]
+pub struct QPath {
+    pub span: Span,
+    // FIXME: I don't think we need this
+    /// The printed path, for error reporting.
+    pub printed: String,
+    /// The definition of the path
+    pub kind: PathKind,
+}
+
+impl fmt::Display for QPath {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", print::path_to_string(self))
+        fmt::Display::fmt(&self.printed, f)
     }
 }
 
-impl Path {
-    /// Convert a span and an identifier to the corresponding
-    /// 1-segment path.
-    pub fn from_ident(s: Span, ident: Ident) -> Path {
-        Path {
-            span: s,
-            global: false,
-            segments: hir_vec![PathSegment {
-                identifier: ident,
-                parameters: PathParameters::none()
-            }],
-        }
-    }
-}
-
-/// A segment of a path: an identifier, an optional lifetime, and a set of
-/// types.
-#[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug)]
-pub struct PathSegment {
-    /// The identifier portion of this path segment.
-    ///
-    /// Hygiene properties of this identifier are worth noting.
-    /// Most path segments are not hygienic and they are not renamed during
-    /// lowering from AST to HIR (see comments to `fn lower_path`). However segments from
-    /// unqualified paths with one segment originating from `ExprPath` (local-variable-like paths)
-    /// can be hygienic, so they are renamed. You should not normally care about this peculiarity
-    /// and just use `identifier.name` unless you modify identifier resolution code
-    /// (`fn resolve_identifier` and other functions called by it in `rustc_resolve`).
-    pub identifier: Ident,
-
-    /// Type/lifetime parameters attached to this path. They come in
-    /// two flavors: `Path<A,B,C>` and `Path(A,B) -> C`. Note that
-    /// this is more than just simple syntactic sugar; the use of
-    /// parens affects the region binding rules, so we preserve the
-    /// distinction.
-    pub parameters: PathParameters,
+#[derive(Clone, Debug, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash)]
+pub enum PathKind {
+    /// A path that does not contain any type-directed lookup,
+    /// e.g. `std::mem::replace::<u32>` or `T`.
+    Simple(Def, PathParameters),
+    /// A type-based associated item projection, e.g. `<T>::method`.
+    TypeProjection(P<Ty>, Name),
+    /// A trait-based associated item projection, e.g. `<T as Trait>::Method`
+    TraitProjection(P<Ty>, P<SPath>, Name),
 }
 
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug)]
@@ -436,7 +420,7 @@ pub struct WhereRegionPredicate {
 pub struct WhereEqPredicate {
     pub id: NodeId,
     pub span: Span,
-    pub path: Path,
+    pub path: QPath,
     pub ty: P<Ty>,
 }
 
@@ -604,21 +588,15 @@ pub enum PatKind {
 
     /// A struct or struct variant pattern, e.g. `Variant {x, y, ..}`.
     /// The `bool` is `true` in the presence of a `..`.
-    Struct(Path, HirVec<Spanned<FieldPat>>, bool),
+    Struct(SPath, HirVec<Spanned<FieldPat>>, bool),
 
     /// A tuple struct/variant pattern `Variant(x, y, z)`.
     /// "None" means a `Variant(..)` pattern where we don't bind the fields to names.
-    TupleStruct(Path, Option<HirVec<P<Pat>>>),
+    TupleStruct(SPath, Option<HirVec<P<Pat>>>),
 
     /// A path pattern.
     /// Such pattern can be resolved to a unit struct/variant or a constant.
-    Path(Path),
-
-    /// An associated const named using the qualified path `<T>::CONST` or
-    /// `<T as Trait>::CONST`. Associated consts from inherent impls can be
-    /// referred to as simply `T::CONST`, in which case they will end up as
-    /// PatKind::Path, and the resolver will have to sort that out.
-    QPath(QSelf, Path),
+    Path(QPath),
 
     /// A tuple pattern `(a, b)`
     Tup(HirVec<P<Pat>>),
@@ -975,7 +953,7 @@ pub enum Expr_ {
     ///
     /// Optionally "qualified",
     /// e.g. `<HirVec<T> as SomeTrait>::SomeType`.
-    ExprPath(Option<QSelf>, Path),
+    ExprPath(QPath),
 
     /// A referencing operation (`&a` or `&mut a`)
     ExprAddrOf(Mutability, P<Expr>),
@@ -993,31 +971,13 @@ pub enum Expr_ {
     ///
     /// For example, `Foo {x: 1, y: 2}`, or
     /// `Foo {x: 1, .. base}`, where `base` is the `Option<Expr>`.
-    ExprStruct(Path, HirVec<Field>, Option<P<Expr>>),
+    ExprStruct(SPath, HirVec<Field>, Option<P<Expr>>),
 
     /// A vector literal constructed from one repeated element.
     ///
     /// For example, `[1; 5]`. The first expression is the element
     /// to be repeated; the second is the number of times to repeat it.
     ExprRepeat(P<Expr>, P<Expr>),
-}
-
-/// The explicit Self type in a "qualified path". The actual
-/// path, including the trait and the associated item, is stored
-/// separately. `position` represents the index of the associated
-/// item qualified with this Self type.
-///
-///     <HirVec<T> as a::b::Trait>::AssociatedItem
-///      ^~~~~     ~~~~~~~~~~~~~~^
-///      ty        position = 3
-///
-///     <HirVec<T>>::AssociatedItem
-///      ^~~~~    ^
-///      ty       position = 0
-#[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug)]
-pub struct QSelf {
-    pub ty: P<Ty>,
-    pub position: usize,
 }
 
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug, Copy)]
@@ -1154,7 +1114,7 @@ pub enum Ty_ {
     /// "qualified", e.g. `<HirVec<T> as SomeTrait>::SomeType`.
     ///
     /// Type parameters are stored in the Path itself
-    TyPath(Option<QSelf>, Path),
+    TyPath(QPath),
     /// Something like `A+B`. Note that `B` must always be a path.
     TyObjectSum(P<Ty>, TyParamBounds),
     /// A type like `for<'a> Foo<&'a Bar>`
@@ -1359,62 +1319,6 @@ pub struct Variant_ {
 
 pub type Variant = Spanned<Variant_>;
 
-#[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug, Copy)]
-pub enum PathListItem_ {
-    PathListIdent {
-        name: Name,
-        /// renamed in list, eg `use foo::{bar as baz};`
-        rename: Option<Name>,
-        id: NodeId,
-    },
-    PathListMod {
-        /// renamed in list, eg `use foo::{self as baz};`
-        rename: Option<Name>,
-        id: NodeId,
-    },
-}
-
-impl PathListItem_ {
-    pub fn id(&self) -> NodeId {
-        match *self {
-            PathListIdent { id, .. } | PathListMod { id, .. } => id,
-        }
-    }
-
-    pub fn name(&self) -> Option<Name> {
-        match *self {
-            PathListIdent { name, .. } => Some(name),
-            PathListMod { .. } => None,
-        }
-    }
-
-    pub fn rename(&self) -> Option<Name> {
-        match *self {
-            PathListIdent { rename, .. } | PathListMod { rename, .. } => rename,
-        }
-    }
-}
-
-pub type PathListItem = Spanned<PathListItem_>;
-
-pub type ViewPath = Spanned<ViewPath_>;
-
-#[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug)]
-pub enum ViewPath_ {
-    /// `foo::bar::baz as quux`
-    ///
-    /// or just
-    ///
-    /// `foo::bar::baz` (with `as baz` implicitly on the right)
-    ViewPathSimple(Name, Path),
-
-    /// `foo::bar::*`
-    ViewPathGlob(Path),
-
-    /// `foo::bar::{a,b,c}`
-    ViewPathList(Path, HirVec<PathListItem>),
-}
-
 /// TraitRef's appear in impls.
 ///
 /// resolve maps each TraitRef's ref_id to its defining trait; that's all
@@ -1423,7 +1327,7 @@ pub enum ViewPath_ {
 /// same as the impl's node id).
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug)]
 pub struct TraitRef {
-    pub path: Path,
+    pub path: SPath,
     pub ref_id: NodeId,
 }
 
@@ -1442,7 +1346,7 @@ pub struct PolyTraitRef {
 pub enum Visibility {
     Public,
     Crate,
-    Restricted { path: P<Path>, id: NodeId },
+    Restricted { path: P<SPath>, id: NodeId },
     Inherited,
 }
 
@@ -1546,8 +1450,6 @@ pub enum Item_ {
     ///
     /// e.g. `extern crate foo` or `extern crate foo_bar as foo`
     ItemExternCrate(Option<Name>),
-    /// A `use` or `pub use` item
-    ItemUse(P<ViewPath>),
 
     /// A `static` item
     ItemStatic(P<Ty>, Mutability, P<Expr>),
@@ -1585,7 +1487,6 @@ impl Item_ {
     pub fn descriptive_variant(&self) -> &str {
         match *self {
             ItemExternCrate(..) => "extern crate",
-            ItemUse(..) => "use",
             ItemStatic(..) => "static item",
             ItemConst(..) => "constant item",
             ItemFn(..) => "function",

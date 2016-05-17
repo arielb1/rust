@@ -113,16 +113,6 @@ impl<'ast> Visitor<'ast> for NodeCollector<'ast> {
                         }
                     }
                 }
-                ItemUse(ref view_path) => {
-                    match view_path.node {
-                        ViewPathList(_, ref paths) => {
-                            for path in paths {
-                                this.insert(path.node.id(), NodeItem(i));
-                            }
-                        }
-                        _ => ()
-                    }
-                }
                 _ => {}
             }
             intravisit::walk_item(this, i);

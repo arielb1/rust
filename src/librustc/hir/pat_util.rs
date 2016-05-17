@@ -199,11 +199,6 @@ pub fn simple_name<'a>(pat: &'a hir::Pat) -> Option<ast::Name> {
     }
 }
 
-pub fn def_to_path<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>, id: DefId) -> hir::Path {
-    let name = tcx.item_name(id);
-    hir::Path::from_ident(DUMMY_SP, hir::Ident::from_name(name))
-}
-
 /// Return variants that are necessary to exist for the pattern to match.
 pub fn necessary_variants(dm: &DefMap, pat: &hir::Pat) -> Vec<DefId> {
     let mut variants = vec![];

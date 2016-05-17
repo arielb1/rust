@@ -916,7 +916,6 @@ fn node_id_to_string(map: &Map, id: NodeId, include_id: bool) -> String {
         Some(NodeItem(item)) => {
             let item_str = match item.node {
                 ItemExternCrate(..) => "extern crate",
-                ItemUse(..) => "use",
                 ItemStatic(..) => "static",
                 ItemConst(..) => "const",
                 ItemFn(..) => "fn",

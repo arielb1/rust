@@ -324,7 +324,6 @@ impl<'a> LoweringContext<'a> {
     fn lower_path_full(&mut self, p: &Path, maybe_hygienic: bool) -> hir::Path {
         let maybe_hygienic = maybe_hygienic && !p.global && p.segments.len() == 1;
         hir::Path {
-            global: p.global,
             segments: p.segments
                        .iter()
                        .map(|&PathSegment { identifier, ref parameters }| {
@@ -1877,16 +1876,15 @@ impl<'a> LoweringContext<'a> {
     }
 
     fn path(&mut self, span: Span, strs: Vec<hir::Ident>) -> hir::Path {
-        self.path_all(span, false, strs, hir::HirVec::new(), hir::HirVec::new(), hir::HirVec::new())
+        self.path_all(span, strs, hir::HirVec::new(), hir::HirVec::new(), hir::HirVec::new())
     }
 
     fn path_global(&mut self, span: Span, strs: Vec<hir::Ident>) -> hir::Path {
-        self.path_all(span, true, strs, hir::HirVec::new(), hir::HirVec::new(), hir::HirVec::new())
+        self.path_all(span, strs, hir::HirVec::new(), hir::HirVec::new(), hir::HirVec::new())
     }
 
     fn path_all(&mut self,
                 sp: Span,
-                global: bool,
                 mut idents: Vec<hir::Ident>,
                 lifetimes: hir::HirVec<hir::Lifetime>,
                 types: hir::HirVec<P<hir::Ty>>,
@@ -1910,7 +1908,6 @@ impl<'a> LoweringContext<'a> {
         });
         hir::Path {
             span: sp,
-            global: global,
             segments: segments.into(),
         }
     }

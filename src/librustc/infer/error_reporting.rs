@@ -1522,7 +1522,6 @@ impl<'a, 'gcx, 'tcx> Rebuilder<'a, 'gcx, 'tcx> {
         new_segs.push(new_seg);
         hir::Path {
             span: path.span,
-            global: path.global,
             segments: new_segs.into()
         }
     }

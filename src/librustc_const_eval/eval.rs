@@ -1240,7 +1240,6 @@ pub fn eval_repeat_count<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
         Err(err) => {
             let err_msg = match count_expr.node {
                 hir::ExprPath(None, hir::Path {
-                    global: false,
                     ref segments,
                     ..
                 }) if segments.len() == 1 =>

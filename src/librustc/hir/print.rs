@@ -659,13 +659,6 @@ impl<'a> State<'a> {
                 self.end()?; // end inner head-block
                 self.end()?; // end outer head-block
             }
-            hir::ItemUse(ref vp) => {
-                self.head(&visibility_qualified(&item.vis, "use"))?;
-                self.print_view_path(&vp)?;
-                word(&mut self.s, ";")?;
-                self.end()?; // end inner head-block
-                self.end()?; // end outer head-block
-            }
             hir::ItemStatic(ref ty, m, ref expr) => {
                 self.head(&visibility_qualified(&item.vis, "static"))?;
                 if m == hir::MutMutable {
@@ -1207,7 +1200,7 @@ impl<'a> State<'a> {
     }
 
     fn print_expr_struct(&mut self,
-                         path: &hir::Path,
+                         path: &hir::SPath,
                          fields: &[hir::Field],
                          wth: &Option<P<hir::Expr>>)
                          -> io::Result<()> {
@@ -1607,7 +1600,7 @@ impl<'a> State<'a> {
                   -> io::Result<()> {
         self.maybe_print_comment(path.span.lo)?;
 
-        let mut first = !path.global;
+        let mut first = false;
         for segment in &path.segments[..path.segments.len() - depth] {
             if first {
                 first = false
