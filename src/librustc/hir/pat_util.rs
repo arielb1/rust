@@ -21,16 +21,6 @@ use std::cell::RefCell;
 
 pub type PatIdMap = FnvHashMap<ast::Name, ast::NodeId>;
 
-// This is used because same-named variables in alternative patterns need to
-// use the NodeId of their namesake in the first pattern.
-pub fn pat_id_map(dm: &RefCell<DefMap>, pat: &hir::Pat) -> PatIdMap {
-    let mut map = FnvHashMap();
-    pat_bindings(dm, pat, |_bm, p_id, _s, path1| {
-        map.insert(path1.node, p_id);
-    });
-    map
-}
-
 pub fn pat_is_refutable(dm: &DefMap, pat: &hir::Pat) -> bool {
     match pat.node {
         PatKind::Lit(_) | PatKind::Range(_, _) | PatKind::QPath(..) => true,

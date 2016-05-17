@@ -2282,50 +2282,53 @@ impl<'a> Resolver<'a> {
                             debug!("(resolving pattern) binding `{}`", renamed);
 
                             let def_id = self.definitions.local_def_id(pattern.id);
-                            let def = Def::Local(def_id, pattern.id);
+                            let def;
 
                             // Record the definition so that later passes
                             // will be able to distinguish variants from
                             // locals in patterns.
+
+                            if let Some(&arm) = bindings_list.get(&renamed) {
+                                if mode == ArgumentIrrefutableMode {
+                                    // Forbid duplicate bindings in the same
+                                    // parameter list.
+                                    resolve_error(
+                                        self,
+                                        pattern.span,
+                                        ResolutionError::
+                                            IdentifierBoundMoreThanOnceInParameterList(
+                                                &ident.name.as_str()));
+                                } else if arm == pat_id {
+                                    // Then this is a duplicate variable in the
+                                    // same disjunction, which is an error.
+                                    resolve_error(
+                                        self,
+                                        pattern.span,
+                                        ResolutionError::IdentifierBoundMoreThanOnceInSamePattern(
+                                            &ident.name.as_str())
+                                            );
+                                }
+
+                                def = self.value_ribs.last_mut().unwrap()
+                                    .bindings[&renamed];
+                            } else {
+                                def = Def::Local(def_id, pattern.id);
+
+                                // Add the binding to the local ribs, if it
+                                // doesn't already exist in the bindings list. (We
+                                // must not add it if it's in the bindings list
+                                // because that breaks the assumptions later
+                                // passes make about or-patterns.)
+                                self.value_ribs.last_mut().unwrap()
+                                    .bindings.insert(renamed, def);
+                                bindings_list.insert(renamed, pat_id);
+                            }
 
                             self.record_def(pattern.id,
                                             PathResolution {
                                                 base_def: def,
                                                 depth: 0,
                                             });
-
-                            // Add the binding to the local ribs, if it
-                            // doesn't already exist in the bindings list. (We
-                            // must not add it if it's in the bindings list
-                            // because that breaks the assumptions later
-                            // passes make about or-patterns.)
-                            if !bindings_list.contains_key(&renamed) {
-                                let this = &mut *self;
-                                let last_rib = this.value_ribs.last_mut().unwrap();
-                                last_rib.bindings.insert(renamed, def);
-                                bindings_list.insert(renamed, pat_id);
-                            } else if mode == ArgumentIrrefutableMode &&
-                               bindings_list.contains_key(&renamed) {
-                                // Forbid duplicate bindings in the same
-                                // parameter list.
-                                resolve_error(
-                                    self,
-                                    pattern.span,
-                                    ResolutionError::IdentifierBoundMoreThanOnceInParameterList(
-                                        &ident.name.as_str())
-                                );
-                            } else if bindings_list.get(&renamed) == Some(&pat_id) {
-                                // Then this is a duplicate variable in the
-                                // same disjunction, which is an error.
-                                resolve_error(
-                                    self,
-                                    pattern.span,
-                                    ResolutionError::IdentifierBoundMoreThanOnceInSamePattern(
-                                        &ident.name.as_str())
-                                );
-                            }
-                            // Else, not bound in the same pattern: do
-                            // nothing.
                         }
                     }
                 }
