@@ -9,7 +9,6 @@
 // except according to those terms.
 
 use hair::*;
-use rustc_data_structures::fnv::FnvHashMap;
 use rustc_const_math::ConstInt;
 use hair::cx::Cx;
 use hair::cx::block;
@@ -19,7 +18,6 @@ use rustc::hir::def::Def;
 use rustc::middle::const_val::ConstVal;
 use rustc_const_eval as const_eval;
 use rustc::middle::region::CodeExtent;
-use rustc::hir::pat_util;
 use rustc::ty::{self, VariantDef, Ty};
 use rustc::ty::cast::CastKind as TyCastKind;
 use rustc::mir::repr::*;
@@ -651,19 +649,8 @@ fn to_borrow_kind(m: hir::Mutability) -> BorrowKind {
 
 fn convert_arm<'a, 'gcx, 'tcx>(cx: &mut Cx<'a, 'gcx, 'tcx>,
                                arm: &'tcx hir::Arm) -> Arm<'tcx> {
-    let mut map;
-    let opt_map = if arm.pats.len() == 1 {
-        None
-    } else {
-        map = FnvHashMap();
-        pat_util::pat_bindings(&cx.tcx.def_map, &arm.pats[0], |_, p_id, _, path| {
-            map.insert(path.node, p_id);
-        });
-        Some(&map)
-    };
-
     Arm {
-        patterns: arm.pats.iter().map(|p| cx.refutable_pat(opt_map, p)).collect(),
+        patterns: arm.pats.iter().map(|p| cx.refutable_pat(p)).collect(),
         guard: arm.guard.to_ref(),
         body: arm.body.to_ref(),
     }

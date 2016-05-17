@@ -10,14 +10,12 @@
 
 use hair::*;
 use hair::cx::Cx;
-use rustc_data_structures::fnv::FnvHashMap;
 use rustc_const_eval as const_eval;
 use rustc::hir::def::Def;
 use rustc::hir::pat_util::{pat_is_resolved_const, pat_is_binding};
 use rustc::ty::{self, Ty};
 use rustc::mir::repr::*;
 use rustc::hir::{self, PatKind};
-use syntax::ast;
 use syntax::codemap::Span;
 use syntax::ptr::P;
 
@@ -36,29 +34,25 @@ use syntax::ptr::P;
 /// ```
 struct PatCx<'patcx, 'cx: 'patcx, 'gcx: 'cx+'tcx, 'tcx: 'cx> {
     cx: &'patcx mut Cx<'cx, 'gcx, 'tcx>,
-    binding_map: Option<&'patcx FnvHashMap<ast::Name, ast::NodeId>>,
 }
 
 impl<'cx, 'gcx, 'tcx> Cx<'cx, 'gcx, 'tcx> {
     pub fn irrefutable_pat(&mut self, pat: &hir::Pat) -> Pattern<'tcx> {
-        PatCx::new(self, None).to_pattern(pat)
+        PatCx::new(self).to_pattern(pat)
     }
 
     pub fn refutable_pat(&mut self,
-                         binding_map: Option<&FnvHashMap<ast::Name, ast::NodeId>>,
                          pat: &hir::Pat)
                          -> Pattern<'tcx> {
-        PatCx::new(self, binding_map).to_pattern(pat)
+        PatCx::new(self).to_pattern(pat)
     }
 }
 
 impl<'patcx, 'cx, 'gcx, 'tcx> PatCx<'patcx, 'cx, 'gcx, 'tcx> {
-    fn new(cx: &'patcx mut Cx<'cx, 'gcx, 'tcx>,
-               binding_map: Option<&'patcx FnvHashMap<ast::Name, ast::NodeId>>)
+    fn new(cx: &'patcx mut Cx<'cx, 'gcx, 'tcx>)
                -> PatCx<'patcx, 'cx, 'gcx, 'tcx> {
         PatCx {
             cx: cx,
-            binding_map: binding_map,
         }
     }
 
@@ -164,10 +158,7 @@ impl<'patcx, 'cx, 'gcx, 'tcx> PatCx<'patcx, 'cx, 'gcx, 'tcx> {
             PatKind::Ident(bm, ref ident, ref sub)
                 if pat_is_binding(&self.cx.tcx.def_map.borrow(), pat) =>
             {
-                let id = match self.binding_map {
-                    None => pat.id,
-                    Some(ref map) => map[&ident.node],
-                };
+                let id = self.cx.tcx.def_map.borrow()[&pat.id].full_def().var_id();
                 let var_ty = self.cx.tcx.node_id_to_type(pat.id);
                 let region = match var_ty.sty {
                     ty::TyRef(&r, _) => Some(r),
