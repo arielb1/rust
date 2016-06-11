@@ -141,7 +141,6 @@ impl<'mir, 'bcx, 'tcx> Visitor<'tcx> for TempAnalyzer<'mir, 'bcx, 'tcx> {
                     LvalueContext::Drop |
                     LvalueContext::Inspect |
                     LvalueContext::Borrow { .. } |
-                    LvalueContext::Slice { .. } |
                     LvalueContext::Projection => {
                         self.mark_as_lvalue(temp.index());
                     }

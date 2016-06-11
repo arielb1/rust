@@ -135,6 +135,12 @@ impl<I: Idx, T> IndexVec<I, T> {
     pub fn last(&self) -> Option<I> {
         self.len().checked_sub(1).map(I::new)
     }
+
+    #[inline]
+    pub fn fill_to(&mut self, index: I) where T: Default {
+        let len = self.len();
+        self.extend((len..index.index()).map(|_| T::default()));
+    }
 }
 
 impl<I: Idx, T> Index<I> for IndexVec<I, T> {
