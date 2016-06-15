@@ -25,7 +25,9 @@
 #![feature(staged_api)]
 #![feature(associated_consts)]
 #![feature(nonzero)]
+#![feature(box_patterns)]
 #![feature(question_mark)]
+
 #[macro_use] extern crate log;
 #[macro_use] extern crate syntax;
 

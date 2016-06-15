@@ -685,6 +685,40 @@ impl<'b, 'tcx> ElaborateDropsCtxt<'b, 'tcx> {
         }
     }
 
+    fn open_drop_for_array(&mut self, c: &DropCtxt<'a, 'tcx>, n: usize) -> BasicBlock {
+        let move_data = self.move_data();
+        let mut children = vec![];
+        let mut next_child = move_data.move_paths[path].first_child;
+        while let Some(child_index) = next_child {
+            let (from, to) = match lv {
+                Lvalue::Projection(box Projection {
+                    elem: ProjectionElem::ConstantIndex { offset, from_end: false, .. },
+                    base: _
+                }) => (offset, offset + 1),
+                Lvalue::Projection(box Projection {
+                    elem: ProjectionElem::ConstantIndex { offset, from_end: true, .. },
+                    base: _
+                }) => (n - offset, n - offset + 1),
+                Lvalue::Projection(box Projection {
+                    elem: ProjectionElem::Subslice { from, to },
+                    base: _
+                }) => (from, to),
+            };
+
+            children.push((child_index, from, to));
+            next_child = move_data.move_paths[child_index].next_sibling;
+        }
+
+        children.sort_by_key(|(_, from, _)| from);
+
+        let mut fields = Vec::with_capacity(n);
+    }
+
+    fn open_drop_for_slice(&mut self, c: &DropCtxt<'a, 'tcx>) -> BasicBlock {
+        span_bug!(c.source_info.span,
+                  "moving out of slices is not supported");
+    }
+
     /// The slow-path - create an "open", elaborated drop for a type
     /// which is moved-out-of only partially, and patch `bb` to a jump
     /// to it. This must not be called on ADTs with a destructor,
@@ -698,6 +732,12 @@ impl<'b, 'tcx> ElaborateDropsCtxt<'b, 'tcx> {
         match ty.sty {
             ty::TyStruct(def, substs) | ty::TyEnum(def, substs) => {
                 self.open_drop_for_adt(c, def, substs)
+            }
+            ty::TyArray(ty, n) => {
+                self.open_drop_for_array(c, ty, n)
+            }
+            ty::TySlice(ty) => {
+                self.open_drop_for_slice(c, ty)
             }
             ty::TyTuple(tys) | ty::TyClosure(_, ty::ClosureSubsts {
                 upvar_tys: tys, ..

@@ -257,7 +257,7 @@ fn lvalue_contents_drop_state_cannot_differ<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx
                                                       lv: &repr::Lvalue<'tcx>) -> bool {
     let ty = mir.lvalue_ty(tcx, lv).to_ty(tcx);
     match ty.sty {
-        ty::TyArray(..) | ty::TySlice(..) | ty::TyRef(..) | ty::TyRawPtr(..) => {
+        ty::TyRef(..) | ty::TyRawPtr(..) => {
             debug!("lvalue_contents_drop_state_cannot_differ lv: {:?} ty: {:?} refd => false",
                    lv, ty);
             true
