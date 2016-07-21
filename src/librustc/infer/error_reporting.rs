@@ -557,8 +557,9 @@ impl<'a, 'gcx, 'tcx> InferCtxt<'a, 'gcx, 'tcx> {
 
         if !is_simple_error && check_old_school() {
             err.span_note(span, &format!("{}", terr));
+        } else {
+            err.span_label(span, &terr);
         }
-        err.span_label(span, &terr);
 
         self.note_error_origin(&mut err, &origin);
         self.check_and_note_conflicting_crates(&mut err, terr, span);
