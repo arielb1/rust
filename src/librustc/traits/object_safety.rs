@@ -158,7 +158,6 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
                     ty::Predicate::TypeOutlives(..) |
                     ty::Predicate::RegionOutlives(..) |
                     ty::Predicate::ClosureKind(..) |
-                    ty::Predicate::Rfc1592(..) |
                     ty::Predicate::Equate(..) => {
                         false
                     }

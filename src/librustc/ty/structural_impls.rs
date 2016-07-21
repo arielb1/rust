@@ -153,9 +153,6 @@ impl<'a, 'tcx> Lift<'tcx> for ty::Predicate<'a> {
             ty::Predicate::WellFormed(ty) => {
                 tcx.lift(&ty).map(ty::Predicate::WellFormed)
             }
-            ty::Predicate::Rfc1592(box ref a) => {
-                tcx.lift(a).map(|a| ty::Predicate::Rfc1592(Box::new(a)))
-            }
             ty::Predicate::ClosureKind(closure_def_id, kind) => {
                 Some(ty::Predicate::ClosureKind(closure_def_id, kind))
             }

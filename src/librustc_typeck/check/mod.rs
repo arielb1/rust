@@ -2161,10 +2161,6 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
             Ok(()) => { }
             Err(errors) => { self.report_fulfillment_errors(&errors); }
         }
-
-        if let Err(ref errors) = fulfillment_cx.select_rfc1592_obligations(self) {
-            self.report_fulfillment_errors_as_warnings(errors, self.body_id);
-        }
     }
 
     /// Select as many obligations as we can at present.

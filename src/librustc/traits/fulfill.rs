@@ -56,9 +56,6 @@ pub struct FulfillmentContext<'tcx> {
     // fulfillment context.
     predicates: ObligationForest<PendingPredicateObligation<'tcx>>,
 
-    // A list of new obligations due to RFC1592.
-    rfc1592_obligations: Vec<PredicateObligation<'tcx>>,
-
     // A set of constraints that regionck must validate. Each
     // constraint has the form `T:'a`, meaning "some type `T` must
     // outlive the lifetime 'a". These constraints derive from
@@ -104,7 +101,6 @@ impl<'a, 'gcx, 'tcx> FulfillmentContext<'tcx> {
     pub fn new() -> FulfillmentContext<'tcx> {
         FulfillmentContext {
             predicates: ObligationForest::new(),
-            rfc1592_obligations: Vec::new(),
             region_obligations: NodeMap(),
         }
     }
@@ -186,13 +182,6 @@ impl<'a, 'gcx, 'tcx> FulfillmentContext<'tcx> {
         });
     }
 
-    pub fn register_rfc1592_obligation(&mut self,
-                                       _infcx: &InferCtxt<'a, 'gcx, 'tcx>,
-                                       obligation: PredicateObligation<'tcx>)
-    {
-        self.rfc1592_obligations.push(obligation);
-    }
-
     pub fn region_obligations(&self,
                               body_id: ast::NodeId)
                               -> &[RegionObligation<'tcx>]
@@ -201,21 +190,6 @@ impl<'a, 'gcx, 'tcx> FulfillmentContext<'tcx> {
             None => Default::default(),
             Some(vec) => vec,
         }
-    }
-
-    pub fn select_rfc1592_obligations(&mut self,
-                                      infcx: &InferCtxt<'a, 'gcx, 'tcx>)
-                                      -> Result<(),Vec<FulfillmentError<'tcx>>>
-    {
-        while !self.rfc1592_obligations.is_empty() {
-            for obligation in mem::replace(&mut self.rfc1592_obligations, Vec::new()) {
-                self.register_predicate_obligation(infcx, obligation);
-            }
-
-            self.select_all_or_error(infcx)?;
-        }
-
-        Ok(())
     }
 
     pub fn select_all_or_error(&mut self,
@@ -263,7 +237,6 @@ impl<'a, 'gcx, 'tcx> FulfillmentContext<'tcx> {
             let outcome = self.predicates.process_obligations(&mut FulfillProcessor {
                     selcx: selcx,
                     region_obligations: &mut self.region_obligations,
-                    rfc1592_obligations: &mut self.rfc1592_obligations
             });
             debug!("select: outcome={:?}", outcome);
 
@@ -298,7 +271,6 @@ impl<'a, 'gcx, 'tcx> FulfillmentContext<'tcx> {
 struct FulfillProcessor<'a, 'b: 'a, 'gcx: 'tcx, 'tcx: 'b> {
     selcx: &'a mut SelectionContext<'b, 'gcx, 'tcx>,
     region_obligations: &'a mut NodeMap<Vec<RegionObligation<'tcx>>>,
-    rfc1592_obligations: &'a mut Vec<PredicateObligation<'tcx>>
 }
 
 impl<'a, 'b, 'gcx, 'tcx> ObligationProcessor for FulfillProcessor<'a, 'b, 'gcx, 'tcx> {
@@ -311,8 +283,7 @@ impl<'a, 'b, 'gcx, 'tcx> ObligationProcessor for FulfillProcessor<'a, 'b, 'gcx, 
     {
         process_predicate(self.selcx,
                           obligation,
-                          self.region_obligations,
-                          self.rfc1592_obligations)
+                          self.region_obligations)
             .map(|os| os.map(|os| os.into_iter().map(|o| PendingPredicateObligation {
                 obligation: o,
                 stalled_on: vec![]
@@ -353,8 +324,7 @@ fn trait_ref_type_vars<'a, 'gcx, 'tcx>(selcx: &mut SelectionContext<'a, 'gcx, 't
 fn process_predicate<'a, 'gcx, 'tcx>(
     selcx: &mut SelectionContext<'a, 'gcx, 'tcx>,
     pending_obligation: &mut PendingPredicateObligation<'tcx>,
-    region_obligations: &mut NodeMap<Vec<RegionObligation<'tcx>>>,
-    rfc1592_obligations: &mut Vec<PredicateObligation<'tcx>>)
+    region_obligations: &mut NodeMap<Vec<RegionObligation<'tcx>>>)
     -> Result<Option<Vec<PredicateObligation<'tcx>>>,
               FulfillmentErrorCode<'tcx>>
 {
@@ -525,14 +495,6 @@ fn process_predicate<'a, 'gcx, 'tcx>(
                 }
                 s => Ok(s)
             }
-        }
-
-        ty::Predicate::Rfc1592(ref inner) => {
-            rfc1592_obligations.push(PredicateObligation {
-                predicate: ty::Predicate::clone(inner),
-                ..obligation.clone()
-            });
-            Ok(Some(vec![]))
         }
     }
 }
