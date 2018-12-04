@@ -81,11 +81,11 @@ pub fn simplify_type<'a, 'gcx, 'tcx>(tcx: TyCtxt<'a, 'gcx, 'tcx>,
         ty::Array(..) | ty::Slice(_) => Some(ArraySimplifiedType),
         ty::RawPtr(_) => Some(PtrSimplifiedType),
         ty::Dynamic(ref trait_info, ..) => {
-            let principal_def_id = trait_info.principal().def_id();
-            if tcx.trait_is_auto(principal_def_id) {
-                Some(MarkerTraitObjectSimplifiedType)
-            } else {
-                Some(TraitSimplifiedType(principal_def_id))
+            match trait_info.principal_def_id() {
+                Some(principal_def_id) if !tcx.trait_is_auto(principal_def_id) => {
+                    Some(TraitSimplifiedType(principal_def_id))
+                }
+                _ => Some(MarkerTraitObjectSimplifiedType)
             }
         }
         ty::Ref(_, ty, _) => {

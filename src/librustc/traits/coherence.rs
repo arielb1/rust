@@ -422,7 +422,14 @@ fn fundamental_ty(tcx: TyCtxt<'_, '_, '_>, ty: Ty<'_>) -> bool {
     match ty.sty {
         ty::Ref(..) => true,
         ty::Adt(def, _) => def.is_fundamental(),
-        ty::Dynamic(ref data, ..) => tcx.has_attr(data.principal().def_id(), "fundamental"),
+        ty::Dynamic(ref data, ..) => {
+            if let Some(principal) = data.principal() {
+                // FIXME: this does not look quite correct!
+                tcx.has_attr(principal.def_id(), "fundamental")
+            } else {
+                false
+            }
+        },
         _ => false
     }
 }
@@ -469,7 +476,13 @@ fn ty_is_local_constructor(ty: Ty<'_>, in_crate: InCrate) -> bool {
         ty::Adt(def, _) => def_id_is_local(def.did, in_crate),
         ty::Foreign(did) => def_id_is_local(did, in_crate),
 
-        ty::Dynamic(ref tt, ..) => def_id_is_local(tt.principal().def_id(), in_crate),
+        ty::Dynamic(ref tt, ..) => {
+            if let Some(principal) = tt.principal() {
+                def_id_is_local(principal.def_id(), in_crate)
+            } else {
+                false
+            }
+        }
 
         ty::Error => true,
 
