@@ -43,9 +43,6 @@ pub enum SimplifiedTypeGen<D>
     PtrSimplifiedType,
     NeverSimplifiedType,
     TupleSimplifiedType(usize),
-    /// A trait object, all of whose components are markers
-    /// (e.g., `dyn Send + Sync`).
-    MarkerTraitObjectSimplifiedType,
     TraitSimplifiedType(D),
     ClosureSimplifiedType(D),
     GeneratorSimplifiedType(D),
@@ -152,7 +149,6 @@ impl<D: Copy + Debug + Ord + Eq + Hash> SimplifiedTypeGen<D> {
             NeverSimplifiedType => NeverSimplifiedType,
             TupleSimplifiedType(n) => TupleSimplifiedType(n),
             TraitSimplifiedType(d) => TraitSimplifiedType(map(d)),
-            MarkerTraitObjectSimplifiedType => MarkerTraitObjectSimplifiedType,
             ClosureSimplifiedType(d) => ClosureSimplifiedType(map(d)),
             GeneratorSimplifiedType(d) => GeneratorSimplifiedType(map(d)),
             GeneratorWitnessSimplifiedType(n) => GeneratorWitnessSimplifiedType(n),
@@ -179,8 +175,7 @@ impl<'a, 'gcx, D> HashStable<StableHashingContext<'a>> for SimplifiedTypeGen<D>
             ArraySimplifiedType |
             PtrSimplifiedType |
             NeverSimplifiedType |
-            ParameterSimplifiedType |
-            MarkerTraitObjectSimplifiedType => {
+            ParameterSimplifiedType => {
                 // nothing to do
             }
             IntSimplifiedType(t) => t.hash_stable(hcx, hasher),
