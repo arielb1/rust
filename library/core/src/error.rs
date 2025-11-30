@@ -159,31 +159,31 @@ pub trait Error: Debug + Display {
     /// a library defining an error type can always make stronger backwards-compatibility
     /// promises - for example, a library can declare that an error type always provides a
     /// [`Location`](core::panic::Location) that provides a relevant source-code location.
-    /// 
+    ///
     /// # Whether to provide by reference or by value
     ///
     /// [`Request::provide_value`] and [`Request::provide_ref`] are two different namespaces.
     /// Therefore, when providing a type, it needs to be picked whether it will be provided
     /// by reference or by value.
-    /// 
+    ///
     /// If a type is provided by value, then a new copy of that type has to be created every
     /// time it is provided, but if it is provided by reference, then the provided value has
     /// to be stored somewhere within the error so that the reference can be returned.
-    /// 
+    ///
     /// Some general rules:
-    /// 
+    ///
     /// 1. If a type is [Copy], it is conventional to provide it by value.
     /// 2. If a type is not [Copy] but also not computed at provide time, for example
     ///    backtrace types that are captured when the error is created, it is conventional
     ///    to provide it by reference.
-    /// 
+    ///
     /// Provided types that are not [Copy] and computed at provide time are fairly rare in
     /// practice. However, when using them, you should be using
     /// [`Request::would_be_satisfied_by_value_of`] to avoid computing them when they
     /// are not requested.
     ///
     /// # Common uses of `provide`
-    /// 
+    ///
     /// 1. [`Location`](core::panic::Location), provided by value, to indicate a source-code
     ///    location relevant to the error. This allows following the [`Error::source`]
     ///    chain to generate a "logical" backtrace, even in the absence of debug information.
@@ -937,6 +937,48 @@ impl<'a> Debug for Request<'a> {
     }
 }
 
+/// AAA
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
+#[repr(transparent)]
+pub struct OptValue<'a>(Tagged<dyn Erased<'a> + 'a>);
+
+impl<'a> OptValue<'a> {
+    /// AAA
+    #[unstable(feature = "error_generic_member_access", issue = "99301")]
+    pub fn consume_value_with<T>(&mut self, fulfil: impl FnOnce(T)) -> &mut Self
+    where
+        T: 'static,
+    {
+        self.consume_with::<tags::Value<T>>(fulfil)
+    }
+
+    /// AAA
+    #[unstable(feature = "error_generic_member_access", issue = "99301")]
+    pub fn consume_ref_with<T: ?Sized + 'static>(
+        &mut self,
+        fulfil: impl FnOnce(&'a T),
+    ) -> &mut Self {
+        self.consume_with::<tags::Ref<tags::MaybeSizedValue<T>>>(fulfil)
+    }
+
+    /// Provides a value with the given `Type` tag, using a closure to prevent unnecessary work.
+    fn consume_with<I>(&mut self, fulfil: impl FnOnce(I::Reified)) -> &mut Self
+    where
+        I: tags::Type<'a>,
+    {
+        if let Some(res @ TaggedOption(Some(_))) = self.0.downcast_mut::<I>() {
+            fulfil(res.0.take().expect("checked it's a Some"));
+        }
+        self
+    }
+}
+
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
+impl<'a> Debug for OptValue<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OptValue").finish_non_exhaustive()
+    }
+}
 ///////////////////////////////////////////////////////////////////////////////
 // Type tags
 ///////////////////////////////////////////////////////////////////////////////
@@ -1014,6 +1056,16 @@ impl<'a, I: tags::Type<'a>> Tagged<TaggedOption<'a, I>> {
         // `Request` is repr(transparent).
         unsafe { &mut *(erased as *mut Tagged<dyn Erased<'a>> as *mut Request<'a>) }
     }
+}
+
+/// AAA
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
+pub trait UniversalSink {
+    /// AAA
+    fn accept_value<V>(&mut self, value: V);
+
+    /// BBB
+    fn accept_ref<V: ?Sized>(&mut self, value: &V);
 }
 
 /// Represents a type-erased but identifiable object.
