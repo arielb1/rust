@@ -153,12 +153,52 @@ pub trait Error: Debug + Display {
     /// Used in conjunction with [`Request::provide_value`] and [`Request::provide_ref`] to extract
     /// references to member variables from `dyn Error` trait objects.
     ///
+    /// Every individual error type can `provide` some types that contain programmatic
+    /// information about the error. The set of values `provide`d by a given error type
+    /// can normally change between different versions of that error type's library. However,
+    /// a library defining an error type can always make stronger backwards-compatibility
+    /// promises - for example, a library can declare that an error type always provides a
+    /// [`Location`](core::panic::Location) that provides a relevant source-code location.
+    /// 
+    /// # Whether to provide by reference or by value
+    ///
+    /// [`Request::provide_value`] and [`Request::provide_ref`] are two different namespaces.
+    /// Therefore, when providing a type, it needs to be picked whether it will be provided
+    /// by reference or by value.
+    /// 
+    /// If a type is provided by value, then a new copy of that type has to be created every
+    /// time it is provided, but if it is provided by reference, then the provided value has
+    /// to be stored somewhere within the error so that the reference can be returned.
+    /// 
+    /// Some general rules:
+    /// 
+    /// 1. If a type is [Copy], it is conventional to provide it by value.
+    /// 2. If a type is not [Copy] but also not computed at provide time, for example
+    ///    backtrace types that are captured when the error is created, it is conventional
+    ///    to provide it by reference.
+    /// 
+    /// Provided types that are not [Copy] and computed at provide time are fairly rare in
+    /// practice. However, when using them, you should be using
+    /// [`Request::would_be_satisfied_by_value_of`] to avoid computing them when they
+    /// are not requested.
+    ///
+    /// # Common uses of `provide`
+    /// 
+    /// 1. [`Location`](core::panic::Location), provided by value, to indicate a source-code
+    ///    location relevant to the error. This allows following the [`Error::source`]
+    ///    chain to generate a "logical" backtrace, even in the absence of debug information.
+    /// 2. A backtrace, provided by reference, that contains the backtrace of the error.
+    /// 3. Various exit code types, normally provided by value. For example, an HTTP framework
+    ///    might request an HTTP status on an error, to allow error types to override the HTTP
+    ///    status returned on an error (consult your framework for specific behavior).
+    ///
     /// # Example
     ///
     /// ```rust
     /// #![feature(error_generic_member_access)]
     /// use core::fmt;
-    /// use core::error::{request_ref, Request};
+    /// use core::error::{request_ref, request_value, Request};
+    /// use core::panic::Location;
     ///
     /// #[derive(Debug)]
     /// enum MyLittleTeaPot {
@@ -180,6 +220,7 @@ pub trait Error: Debug + Display {
     /// #[derive(Debug)]
     /// struct Error {
     ///     backtrace: MyBacktrace,
+    ///     location: Location<'static>,
     /// }
     ///
     /// impl fmt::Display for Error {
@@ -191,17 +232,21 @@ pub trait Error: Debug + Display {
     /// impl std::error::Error for Error {
     ///     fn provide<'a>(&'a self, request: &mut Request<'a>) {
     ///         request
-    ///             .provide_ref::<MyBacktrace>(&self.backtrace);
+    ///             .provide_ref::<MyBacktrace>(&self.backtrace)
+    ///             .provide::<Location>(&self.location);
     ///     }
     /// }
     ///
     /// fn main() {
     ///     let backtrace = MyBacktrace::new();
-    ///     let error = Error { backtrace };
+    ///     let location = Location::caller();
+    ///     let error = Error { backtrace, location };
     ///     let dyn_error = &error as &dyn std::error::Error;
     ///     let backtrace_ref = request_ref::<MyBacktrace>(dyn_error).unwrap();
+    ///     let location = request_value::<Location>(dyn_error).unwrap();
     ///
     ///     assert!(core::ptr::eq(&error.backtrace, backtrace_ref));
+    ///     assert_eq!(error.location, location);
     ///     assert!(request_ref::<MyLittleTeaPot>(dyn_error).is_none());
     /// }
     /// ```
