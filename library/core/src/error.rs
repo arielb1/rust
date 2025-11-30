@@ -1003,6 +1003,8 @@ pub(crate) mod tags {
         /// The type of values which may be tagged by this tag for the given
         /// lifetime.
         type Reified: 'a;
+
+        fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>);
     }
 
     /// Similar to the [`Type`] trait, but represents a type which may be unsized (i.e., has a
@@ -1021,6 +1023,14 @@ pub(crate) mod tags {
 
     impl<'a, T: 'static> Type<'a> for Value<T> {
         type Reified = T;
+
+        fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>) {
+            if sink.0.is_none() {
+                source.consume_value_with::<T>(|val| {
+                    sink.0 = Some(val)
+                });
+            }
+        }
     }
 
     /// Type-based tag similar to [`Value`] but which may be unsized (i.e., has a `?Sized` bound).
@@ -1038,6 +1048,14 @@ pub(crate) mod tags {
 
     impl<'a, I: MaybeSizedType<'a>> Type<'a> for Ref<I> {
         type Reified = &'a I::Reified;
+
+        fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>) {
+            if sink.0.is_none() {
+                source.consume_value_with::<&I::Reified>(|val| {
+                    sink.0 = Some(val)
+                });
+            }
+        }
     }
 }
 
@@ -1071,9 +1089,14 @@ pub trait UniversalSink {
 /// Represents a type-erased but identifiable object.
 ///
 /// This trait is exclusively implemented by the `TaggedOption` type.
-unsafe trait Erased<'a>: 'a {}
+unsafe trait Erased<'a>: 'a {
+    fn consume(&mut self, value: &mut OptValue<'a>);
+}
 
-unsafe impl<'a, I: tags::Type<'a>> Erased<'a> for TaggedOption<'a, I> {}
+unsafe impl<'a, I: tags::Type<'a>> Erased<'a> for TaggedOption<'a, I> {
+    fn consume(&mut self, value: &mut OptValue<'a>) {
+    }
+}
 
 struct Tagged<E: ?Sized> {
     tag_id: TypeId,
