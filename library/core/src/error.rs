@@ -1049,7 +1049,7 @@ pub(crate) mod tags {
 
         fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>) {
             if sink.0.is_none() {
-                source.consume_value_with::<&I::Reified>(|val| sink.0 = Some(val));
+                source.consume_ref_with::<I::Reified>(|val| sink.0 = Some(val));
             }
         }
     }
