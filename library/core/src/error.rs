@@ -1026,9 +1026,7 @@ pub(crate) mod tags {
 
         fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>) {
             if sink.0.is_none() {
-                source.consume_value_with::<T>(|val| {
-                    sink.0 = Some(val)
-                });
+                source.consume_value_with::<T>(|val| sink.0 = Some(val));
             }
         }
     }
@@ -1051,9 +1049,7 @@ pub(crate) mod tags {
 
         fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>) {
             if sink.0.is_none() {
-                source.consume_value_with::<&I::Reified>(|val| {
-                    sink.0 = Some(val)
-                });
+                source.consume_value_with::<&I::Reified>(|val| sink.0 = Some(val));
             }
         }
     }
@@ -1094,7 +1090,9 @@ unsafe trait Erased<'a>: 'a {
 }
 
 unsafe impl<'a, I: tags::Type<'a>> Erased<'a> for TaggedOption<'a, I> {
+    // This impl is not really used, but leave it here
     fn consume(&mut self, value: &mut OptValue<'a>) {
+        I::consume(self, value);
     }
 }
 
