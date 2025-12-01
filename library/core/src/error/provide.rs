@@ -1,4 +1,3 @@
-
 /// Requests a value of type `T` from the given `impl Error`.
 ///
 /// # Examples
@@ -576,7 +575,7 @@ pub(crate) mod tags {
         /// The type of values which may be tagged by this tag for the given
         /// lifetime.
         type Reified: 'a;
-        
+
         fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>);
     }
 
@@ -617,7 +616,10 @@ pub(crate) mod tags {
     #[derive(Debug)]
     pub(crate) struct Ref<I>(PhantomData<I>);
 
-    impl<'a, I: MaybeSizedType<'a>> Type<'a> for Ref<I> where I::Reified: 'static {
+    impl<'a, I: MaybeSizedType<'a>> Type<'a> for Ref<I>
+    where
+        I::Reified: 'static,
+    {
         type Reified = &'a I::Reified;
 
         fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>) {
