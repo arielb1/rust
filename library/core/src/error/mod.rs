@@ -1,12 +1,13 @@
-#![doc = include_str!("error.md")]
+#![doc = include_str!("../error.md")]
 #![stable(feature = "error_in_core", since = "1.81.0")]
 
 use crate::any::TypeId;
-use crate::fmt::{self, Debug, Display, Formatter};
+use crate::fmt::{Debug, Display};
 
 mod provide;
 
-pub use provide::Request;
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
+pub use provide::{Request, request_ref, request_value};
 
 /// `Error` is a trait representing the basic expectations for error values,
 /// i.e., values of type `E` in [`Result<T, E>`].

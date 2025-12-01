@@ -1,3 +1,10 @@
+//! Implementation of [Request]
+
+use crate::any::TypeId;
+use crate::error::Error;
+use crate::fmt::{self, Debug, Formatter};
+use crate::marker::PhantomData;
+
 /// Requests a value of type `T` from the given `impl Error`.
 ///
 /// # Examples
@@ -302,9 +309,7 @@ impl<'a> Request<'a> {
     where
         I: tags::Type<'a>,
     {
-        if let Some(res @ TaggedOption(None)) = self.0.downcast_mut::<I>() {
-            res.0 = Some(value);
-        }
+        self.0.provide::<I>(value);
         self
     }
 
@@ -313,9 +318,7 @@ impl<'a> Request<'a> {
     where
         I: tags::Type<'a>,
     {
-        if let Some(res @ TaggedOption(None)) = self.0.downcast_mut::<I>() {
-            res.0 = Some(fulfil());
-        }
+        self.0.provide_with::<I>(value);
         self
     }
 
@@ -498,7 +501,7 @@ impl<'a> Request<'a> {
     where
         I: tags::Type<'a>,
     {
-        matches!(self.0.downcast::<I>(), Some(TaggedOption(None)))
+        self.0.would_be_satisfied_by::<I>()
     }
 }
 
@@ -509,10 +512,142 @@ impl<'a> Debug for Request<'a> {
     }
 }
 
+
+/// AAA
+#[derive(Copy, Clone)]
+pub struct EmptyMultiRequestBuilder;
+
+/// AAA
+#[derive(Copy, Clone)]
+pub struct MultiRequestChainBuilder<I, NEXT>(PhantomData<(I, NEXT)>);
+
+trait IntoMultiRequest<'a>: 'static {
+    type Request: Erased<'a>;
+
+    fn request() -> Self::Request;
+}
+
+impl<'a> IntoMultiRequest<'a> for EmptyMultiRequestBuilder {
+    type Request = EmptyMultiRequest;
+
+    fn request() -> Self::Request {
+        EmptyMultiRequest
+    }
+}
+
+impl<'a, I, NEXT> IntoMultiRequest<'a> for MultiRequestChainBuilder<I, NEXT>
+    where I: tags::Type<'a>, NEXT: IntoMultiRequest<'a>
+{
+    type Request = MultiRequestChain<'a, I, NEXT::Request>;
+
+    fn request() -> Self::Request {
+        MultiRequestChain {
+            cur: None,
+            next: NEXT::request(),
+            marker: PhantomData,
+        }
+    }
+}
+
+/// AAA
+pub struct EmptyMultiRequest;
+
+/// AAA
+pub struct MultiRequestChain<'a, I, NEXT> where I: tags::Type<'a> {
+    cur: Option<I::Reified>,
+    next: NEXT,
+    // Lifetime is invariant because it is used in an associated type
+    marker: PhantomData<*mut &'a ()>,
+}
+
+trait ValueHaver<'a> {
+    fn consume_with<I>(&mut self, fulfil: impl FnOnce(I::Reified)) -> &mut Self
+    where
+        I: tags::Type<'a>;
+}
+
+impl<'a> ValueHaver<'a> for EmptyMultiRequest {
+    fn consume_with<I>(&mut self, _fulfil: impl FnOnce(I::Reified)) -> &mut Self
+    where
+        I: tags::Type<'a>
+    {
+        self
+    }
+}
+
+impl<'a, J, NEXT> ValueHaver<'a> for MultiRequestChain<'a, J, NEXT> where J: tags::Type<'a>, NEXT: ValueHaver<'a> {
+    fn consume_with<I>(&mut self, fulfil: impl FnOnce(I::Reified)) -> &mut Self
+    where
+        I: tags::Type<'a>,
+    {
+        unsafe {
+            // this `if` is const. Equality is always decidable for tag types, but we can't prove that to the type system.
+            if TypeId::of::<I>() == TypeId::of::<J>() {
+                // cast is safe because type ids are equal
+                let cur = &mut *(&mut self.cur as *mut Option<J::Reified> as *mut Option<I::Reified>);
+                if let Some(val) = cur.take() {
+                    fulfil(val);
+                    return self;
+                }
+            }
+        }
+        self.next.consume_with::<I>(fulfil);
+        self
+    }
+}
+
+unsafe impl<'a> Erased<'a> for EmptyMultiRequest
+{
+    fn consume(&mut self, _value: &mut OptValue<'a>) {
+    }
+    
+    fn will_consume(&self, _type_id: TypeId) -> bool {
+        false
+    }
+}
+
+unsafe impl<'a, I, NEXT> Erased<'a> for MultiRequestChain<'a, I, NEXT>
+    where I: tags::Type<'a>, NEXT: Erased<'a>
+{
+    fn consume(&mut self, value: &mut OptValue<'a>) {
+        value.consume_with::<I>(|v| {
+            self.cur = Some(v);
+        });
+        self.next.consume(value);
+    }
+
+    
+    fn will_consume(&self, type_id: TypeId) -> bool {
+        (type_id == TypeId::of::<I>() && self.cur.is_none()) || self.next.will_consume(type_id)
+    }
+}
+
+pub struct MultiRequestBuilder<INNER: for<'a> IntoMultiRequest<'a>> {
+    inner: PhantomData<INNER>,
+}
+
+impl MultiRequestBuilder<EmptyMultiRequestBuilder> {
+    pub fn new() -> Self {
+        MultiRequestBuilder { inner: PhantomData }
+    }
+}
+
+impl<INNER: for<'a> IntoMultiRequest<'a>> MultiRequestBuilder<INNER> {
+    pub fn with_value<V>(&self) -> MultiRequestBuilder<MultiRequestChainBuilder<tags::Value<V>, INNER>> {
+        MultiRequestBuilder { inner: PhantomData }
+    }
+
+    pub fn with_ref<R>(&self) -> MultiRequestBuilder<MultiRequestChainBuilder<tags::Ref<tags::MaybeSizedValue<R>>, INNER>> {
+        MultiRequestBuilder { inner: PhantomData }
+    }
+}
+
+struct ErasedMarker;
+
 /// AAA
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
 #[repr(transparent)]
-pub struct OptValue<'a>(Tagged<dyn Erased<'a> + 'a>);
+pub(crate) struct OptValue<'a>(Tagged<dyn Erased<'a> + 'a>);
 
 impl<'a> OptValue<'a> {
     /// AAA
@@ -645,6 +780,13 @@ impl<'a, I: tags::Type<'a>> Tagged<TaggedOption<'a, I>> {
         // `Request` is repr(transparent).
         unsafe { &mut *(erased as *mut Tagged<dyn Erased<'a>> as *mut Request<'a>) }
     }
+
+    pub(crate) fn as_opt_value(&mut self) -> &mut OptValue<'a> {
+        let erased = self as &mut Tagged<dyn Erased<'a> + 'a>;
+        // SAFETY: transmuting `&mut Tagged<dyn Erased<'a> + 'a>` to `&mut OptValue<'a>` is safe since
+        // `Request` is repr(transparent).
+        unsafe { &mut *(erased as *mut Tagged<dyn Erased<'a>> as *mut OptValue<'a>) }
+    }
 }
 
 /// Represents a type-erased but identifiable object.
@@ -652,12 +794,16 @@ impl<'a, I: tags::Type<'a>> Tagged<TaggedOption<'a, I>> {
 /// This trait is exclusively implemented by the `TaggedOption` type.
 unsafe trait Erased<'a>: 'a {
     fn consume(&mut self, value: &mut OptValue<'a>);
+    fn will_consume(&self, type_id: TypeId) -> bool;
 }
 
 unsafe impl<'a, I: tags::Type<'a>> Erased<'a> for TaggedOption<'a, I> {
     // This impl is not really used, but leave it here
     fn consume(&mut self, value: &mut OptValue<'a>) {
         I::consume(self, value);
+    }
+    fn will_consume(&self, type_id: TypeId) -> bool {
+        type_id == TypeId::of::<I>() && self.0.is_none()
     }
 }
 
@@ -667,6 +813,56 @@ struct Tagged<E: ?Sized> {
 }
 
 impl<'a> Tagged<dyn Erased<'a> + 'a> {
+    fn is_virtual(&self) -> bool {
+        self.tag_id == TypeId::of::<ErasedMarker>()
+    }
+
+    #[inline]
+    fn would_be_satisfied_by<I>(&self) -> bool
+    where I: tags::Type<'a> {
+        if self.is_virtual() {
+            self.value.will_consume(TypeId::of::<I>())
+        } else {
+            matches!(self.downcast::<I>(), Some(TaggedOption(None)))
+        }
+    }
+
+    #[inline]
+    fn provide<I>(&mut self, value: I::Reified)
+    where
+        I: tags::Type<'a>,
+    {
+        if self.is_virtual() {
+            let mut tagged = Tagged { tag_id: TypeId::of::<I>(), value: TaggedOption::<'a, I>(Some(value)) };
+            self.value.consume(tagged.as_opt_value());
+        } else {
+            if let Some(res @ TaggedOption(None)) = self.downcast_mut::<I>() {
+                res.0 = Some(value);
+            }
+        }
+            
+    }
+
+    #[inline]
+    fn provide_with<I>(&mut self, fulfil: impl FnOnce() -> I::Reified)
+    where
+        I: tags::Type<'a>,
+    {
+        if self.is_virtual() {
+            // This performs 2 virtual calls to `self.value`. However, any way of passing the `FnOnce` would also require a
+            // virtual call, and this is not a very hot path.
+            if self.would_be_satisfied_by::<I>() {
+                let mut tagged = Tagged { tag_id: TypeId::of::<I>(), value: TaggedOption::<'a, I>(Some(fulfil())) };
+                self.value.consume(tagged.as_opt_value());
+            }
+        } else {
+            if let Some(res @ TaggedOption(None)) = self.downcast_mut::<I>() {
+                res.0 = Some(fulfil());
+            }
+        }
+    }
+
+
     /// Returns some reference to the dynamic value if it is tagged with `I`,
     /// or `None` otherwise.
     #[inline]
