@@ -1003,7 +1003,7 @@ pub(crate) mod tags {
         /// The type of values which may be tagged by this tag for the given
         /// lifetime.
         type Reified: 'a;
-
+        
         fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>);
     }
 
@@ -1044,7 +1044,7 @@ pub(crate) mod tags {
     #[derive(Debug)]
     pub(crate) struct Ref<I>(PhantomData<I>);
 
-    impl<'a, I: MaybeSizedType<'a>> Type<'a> for Ref<I> {
+    impl<'a, I: MaybeSizedType<'a>> Type<'a> for Ref<I> where I::Reified: 'static {
         type Reified = &'a I::Reified;
 
         fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>) {
@@ -1070,16 +1070,6 @@ impl<'a, I: tags::Type<'a>> Tagged<TaggedOption<'a, I>> {
         // `Request` is repr(transparent).
         unsafe { &mut *(erased as *mut Tagged<dyn Erased<'a>> as *mut Request<'a>) }
     }
-}
-
-/// AAA
-#[unstable(feature = "error_generic_member_access", issue = "99301")]
-pub trait UniversalSink {
-    /// AAA
-    fn accept_value<V>(&mut self, value: V);
-
-    /// BBB
-    fn accept_ref<V: ?Sized>(&mut self, value: &V);
 }
 
 /// Represents a type-erased but identifiable object.
