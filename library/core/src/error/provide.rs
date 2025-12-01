@@ -513,7 +513,6 @@ impl<'a> Debug for Request<'a> {
     }
 }
 
-
 /// AAA
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
 #[derive(Copy, Clone)]
@@ -539,16 +538,14 @@ impl<'a> IntoMultiRequest<'a> for EmptyMultiRequestBuilder {
 }
 
 impl<'a, I, NEXT> IntoMultiRequest<'a> for ChainMultiRequestBuilder<I, NEXT>
-    where I: tags::Type<'a>, NEXT: IntoMultiRequest<'a>
+where
+    I: tags::Type<'a>,
+    NEXT: IntoMultiRequest<'a>,
 {
     type Request = MultiRequestChain<'a, I, NEXT::Request>;
 
     fn get_request() -> Self::Request {
-        MultiRequestChain {
-            cur: None,
-            next: NEXT::get_request(),
-            marker: PhantomData,
-        }
+        MultiRequestChain { cur: None, next: NEXT::get_request(), marker: PhantomData }
     }
 }
 
@@ -556,7 +553,10 @@ impl<'a, I, NEXT> IntoMultiRequest<'a> for ChainMultiRequestBuilder<I, NEXT>
 pub struct EmptyMultiRequest;
 
 /// AAA
-pub struct MultiRequestChain<'a, I, NEXT> where I: tags::Type<'a> {
+pub struct MultiRequestChain<'a, I, NEXT>
+where
+    I: tags::Type<'a>,
+{
     cur: Option<I::Reified>,
     next: NEXT,
     // Lifetime is invariant because it is used in an associated type
@@ -574,22 +574,28 @@ pub trait ValueHaver<'a> {
 impl<'a> ValueHaver<'a> for EmptyMultiRequest {
     fn consume_with<I>(&mut self, _fulfil: impl FnOnce(I::Reified)) -> &mut Self
     where
-        I: tags::Type<'a>
+        I: tags::Type<'a>,
     {
         self
     }
 }
 
-impl<'a, J, NEXT> ValueHaver<'a> for MultiRequestChain<'a, J, NEXT> where J: tags::Type<'a>, NEXT: ValueHaver<'a> {
+impl<'a, J, NEXT> ValueHaver<'a> for MultiRequestChain<'a, J, NEXT>
+where
+    J: tags::Type<'a>,
+    NEXT: ValueHaver<'a>,
+{
     fn consume_with<I>(&mut self, fulfil: impl FnOnce(I::Reified)) -> &mut Self
     where
         I: tags::Type<'a>,
     {
+        // SAFETY: cast is safe because type ids are equal implies types are equal
         unsafe {
             // this `if` is const. Equality is always decidable for tag types, but we can't prove that to the type system.
             if TypeId::of::<I>() == TypeId::of::<J>() {
                 // cast is safe because type ids are equal
-                let cur = &mut *(&mut self.cur as *mut Option<J::Reified> as *mut Option<I::Reified>);
+                let cur =
+                    &mut *(&mut self.cur as *mut Option<J::Reified> as *mut Option<I::Reified>);
                 if let Some(val) = cur.take() {
                     fulfil(val);
                     return self;
@@ -601,8 +607,7 @@ impl<'a, J, NEXT> ValueHaver<'a> for MultiRequestChain<'a, J, NEXT> where J: tag
     }
 }
 
-unsafe impl<'a> Erased<'a> for EmptyMultiRequest
-{
+unsafe impl<'a> Erased<'a> for EmptyMultiRequest {
     fn consume(&self, _type_id: TypeId) -> Option<NonNull<()>> {
         None
     }
@@ -612,7 +617,9 @@ unsafe impl<'a> Erased<'a> for EmptyMultiRequest
 }
 
 unsafe impl<'a, I, NEXT> Erased<'a> for MultiRequestChain<'a, I, NEXT>
-    where I: tags::Type<'a>, NEXT: Erased<'a>
+where
+    I: tags::Type<'a>,
+    NEXT: Erased<'a>,
 {
     fn consume(&self, type_id: TypeId) -> Option<NonNull<()>> {
         if type_id == TypeId::of::<I>() && self.cur.is_none() {
@@ -647,13 +654,18 @@ impl MultiRequestBuilder<EmptyMultiRequestBuilder> {
 impl<INNER: for<'a> IntoMultiRequest<'a>> MultiRequestBuilder<INNER> {
     /// AAA
     #[unstable(feature = "error_generic_member_access", issue = "99301")]
-    pub fn with_value<V>(self) -> MultiRequestBuilder<ChainMultiRequestBuilder<tags::Value<V>, INNER>> {
+    pub fn with_value<V>(
+        self,
+    ) -> MultiRequestBuilder<ChainMultiRequestBuilder<tags::Value<V>, INNER>> {
         MultiRequestBuilder { inner: PhantomData }
     }
 
     /// AAA
     #[unstable(feature = "error_generic_member_access", issue = "99301")]
-    pub fn with_ref<R>(self) -> MultiRequestBuilder<ChainMultiRequestBuilder<tags::Ref<tags::MaybeSizedValue<R>>, INNER>> {
+    pub fn with_ref<R>(
+        self,
+    ) -> MultiRequestBuilder<ChainMultiRequestBuilder<tags::Ref<tags::MaybeSizedValue<R>>, INNER>>
+    {
         MultiRequestBuilder { inner: PhantomData }
     }
 
@@ -680,7 +692,9 @@ pub(crate) mod tags {
     //! Request API with more complex types (typically those including lifetime parameters), you
     //! will need to write your own tags.
 
-    use crate::{any::TypeId, marker::PhantomData, ptr::NonNull};
+    use crate::any::TypeId;
+    use crate::marker::PhantomData;
+    use crate::ptr::NonNull;
 
     /// This trait is implemented by specific tag types in order to allow
     /// describing a type which can be requested for a given lifetime `'a`.
@@ -692,9 +706,12 @@ pub(crate) mod tags {
         /// The type of values which may be tagged by this tag for the given
         /// lifetime.
         type Reified: 'a;
-    
+
         fn consume(sink: &super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>>;
-        fn consume_mut(sink: &mut super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>>;
+        fn consume_mut(
+            sink: &mut super::TaggedOption<'a, Self>,
+            type_id: TypeId,
+        ) -> Option<NonNull<()>>;
     }
 
     /// Similar to the [`Type`] trait, but represents a type which may be unsized (i.e., has a
@@ -721,7 +738,10 @@ pub(crate) mod tags {
                 None
             }
         }
-        fn consume_mut(sink: &mut super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>> {
+        fn consume_mut(
+            sink: &mut super::TaggedOption<'a, Self>,
+            type_id: TypeId,
+        ) -> Option<NonNull<()>> {
             if sink.0.is_none() && type_id == TypeId::of::<Self>() {
                 Some(NonNull::from_mut(&mut sink.0).cast())
             } else {
@@ -756,7 +776,10 @@ pub(crate) mod tags {
                 None
             }
         }
-        fn consume_mut(sink: &mut super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>> {
+        fn consume_mut(
+            sink: &mut super::TaggedOption<'a, Self>,
+            type_id: TypeId,
+        ) -> Option<NonNull<()>> {
             if sink.0.is_none() && type_id == TypeId::of::<Self>() {
                 Some(NonNull::from_mut(&mut sink.0).cast())
             } else {
@@ -829,7 +852,9 @@ impl<'a> Tagged<dyn Erased<'a> + 'a> {
 
     #[inline]
     fn would_be_satisfied_by<I>(&self) -> bool
-    where I: tags::Type<'a> {
+    where
+        I: tags::Type<'a>,
+    {
         if self.is_virtual() {
             // consume returns None if the space is not satisfied
             self.value.consume(TypeId::of::<I>()).is_some()
@@ -844,6 +869,7 @@ impl<'a> Tagged<dyn Erased<'a> + 'a> {
         I: tags::Type<'a>,
     {
         if self.is_virtual() {
+            // SAFETY: consume_mut is defined to return either None or Some(I::Reified)
             unsafe {
                 if let Some(res) = self.value.consume_mut(TypeId::of::<I>()) {
                     let mut ptr: NonNull<Option<I::Reified>> = res.cast();
@@ -857,7 +883,6 @@ impl<'a> Tagged<dyn Erased<'a> + 'a> {
                 res.0 = Some(value);
             }
         }
-            
     }
 
     #[inline]
@@ -866,6 +891,7 @@ impl<'a> Tagged<dyn Erased<'a> + 'a> {
         I: tags::Type<'a>,
     {
         if self.is_virtual() {
+            // SAFETY: consume_mut is defined to return either None or Some(I::Reified)
             unsafe {
                 if let Some(res) = self.value.consume_mut(TypeId::of::<I>()) {
                     let mut ptr: NonNull<Option<I::Reified>> = res.cast();
@@ -880,7 +906,6 @@ impl<'a> Tagged<dyn Erased<'a> + 'a> {
             }
         }
     }
-
 
     /// Returns some reference to the dynamic value if it is tagged with `I`,
     /// or `None` otherwise.
