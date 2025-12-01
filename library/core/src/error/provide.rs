@@ -4,6 +4,7 @@ use crate::any::TypeId;
 use crate::error::Error;
 use crate::fmt::{self, Debug, Formatter};
 use crate::marker::PhantomData;
+use crate::ptr::NonNull;
 
 /// Requests a value of type `T` from the given `impl Error`.
 ///
@@ -318,7 +319,7 @@ impl<'a> Request<'a> {
     where
         I: tags::Type<'a>,
     {
-        self.0.provide_with::<I>(value);
+        self.0.provide_with::<I>(fulfil);
         self
     }
 
@@ -519,7 +520,7 @@ pub struct EmptyMultiRequestBuilder;
 
 /// AAA
 #[derive(Copy, Clone)]
-pub struct MultiRequestChainBuilder<I, NEXT>(PhantomData<(I, NEXT)>);
+pub struct ChainMultiRequestBuilder<I, NEXT>(PhantomData<(I, NEXT)>);
 
 trait IntoMultiRequest<'a>: 'static {
     type Request: Erased<'a>;
@@ -535,7 +536,7 @@ impl<'a> IntoMultiRequest<'a> for EmptyMultiRequestBuilder {
     }
 }
 
-impl<'a, I, NEXT> IntoMultiRequest<'a> for MultiRequestChainBuilder<I, NEXT>
+impl<'a, I, NEXT> IntoMultiRequest<'a> for ChainMultiRequestBuilder<I, NEXT>
     where I: tags::Type<'a>, NEXT: IntoMultiRequest<'a>
 {
     type Request = MultiRequestChain<'a, I, NEXT::Request>;
@@ -598,27 +599,30 @@ impl<'a, J, NEXT> ValueHaver<'a> for MultiRequestChain<'a, J, NEXT> where J: tag
 
 unsafe impl<'a> Erased<'a> for EmptyMultiRequest
 {
-    fn consume(&mut self, _value: &mut OptValue<'a>) {
+    fn consume(&self, _type_id: TypeId) -> Option<NonNull<()>> {
+        None
     }
-    
-    fn will_consume(&self, _type_id: TypeId) -> bool {
-        false
+    fn consume_mut(&mut self, _type_id: TypeId) -> Option<NonNull<()>> {
+        None
     }
 }
 
 unsafe impl<'a, I, NEXT> Erased<'a> for MultiRequestChain<'a, I, NEXT>
     where I: tags::Type<'a>, NEXT: Erased<'a>
 {
-    fn consume(&mut self, value: &mut OptValue<'a>) {
-        value.consume_with::<I>(|v| {
-            self.cur = Some(v);
-        });
-        self.next.consume(value);
+    fn consume(&self, type_id: TypeId) -> Option<NonNull<()>> {
+        if type_id == TypeId::of::<I>() && self.cur.is_none() {
+            Some(NonNull::from_ref(&self.cur).cast())
+        } else {
+            self.next.consume(type_id)
+        }
     }
-
-    
-    fn will_consume(&self, type_id: TypeId) -> bool {
-        (type_id == TypeId::of::<I>() && self.cur.is_none()) || self.next.will_consume(type_id)
+    fn consume_mut(&mut self, type_id: TypeId) -> Option<NonNull<()>> {
+        if type_id == TypeId::of::<I>() && self.cur.is_none() {
+            Some(NonNull::from_mut(&mut self.cur).cast())
+        } else {
+            self.next.consume_mut(type_id)
+        }
     }
 }
 
@@ -633,59 +637,17 @@ impl MultiRequestBuilder<EmptyMultiRequestBuilder> {
 }
 
 impl<INNER: for<'a> IntoMultiRequest<'a>> MultiRequestBuilder<INNER> {
-    pub fn with_value<V>(&self) -> MultiRequestBuilder<MultiRequestChainBuilder<tags::Value<V>, INNER>> {
+    pub fn with_value<V>(&self) -> MultiRequestBuilder<ChainMultiRequestBuilder<tags::Value<V>, INNER>> {
         MultiRequestBuilder { inner: PhantomData }
     }
 
-    pub fn with_ref<R>(&self) -> MultiRequestBuilder<MultiRequestChainBuilder<tags::Ref<tags::MaybeSizedValue<R>>, INNER>> {
+    pub fn with_ref<R>(&self) -> MultiRequestBuilder<ChainMultiRequestBuilder<tags::Ref<tags::MaybeSizedValue<R>>, INNER>> {
         MultiRequestBuilder { inner: PhantomData }
     }
 }
 
 struct ErasedMarker;
 
-/// AAA
-#[unstable(feature = "error_generic_member_access", issue = "99301")]
-#[repr(transparent)]
-pub(crate) struct OptValue<'a>(Tagged<dyn Erased<'a> + 'a>);
-
-impl<'a> OptValue<'a> {
-    /// AAA
-    #[unstable(feature = "error_generic_member_access", issue = "99301")]
-    pub fn consume_value_with<T>(&mut self, fulfil: impl FnOnce(T)) -> &mut Self
-    where
-        T: 'static,
-    {
-        self.consume_with::<tags::Value<T>>(fulfil)
-    }
-
-    /// AAA
-    #[unstable(feature = "error_generic_member_access", issue = "99301")]
-    pub fn consume_ref_with<T: ?Sized + 'static>(
-        &mut self,
-        fulfil: impl FnOnce(&'a T),
-    ) -> &mut Self {
-        self.consume_with::<tags::Ref<tags::MaybeSizedValue<T>>>(fulfil)
-    }
-
-    /// Provides a value with the given `Type` tag, using a closure to prevent unnecessary work.
-    fn consume_with<I>(&mut self, fulfil: impl FnOnce(I::Reified)) -> &mut Self
-    where
-        I: tags::Type<'a>,
-    {
-        if let Some(res @ TaggedOption(Some(_))) = self.0.downcast_mut::<I>() {
-            fulfil(res.0.take().expect("checked it's a Some"));
-        }
-        self
-    }
-}
-
-#[unstable(feature = "error_generic_member_access", issue = "99301")]
-impl<'a> Debug for OptValue<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OptValue").finish_non_exhaustive()
-    }
-}
 ///////////////////////////////////////////////////////////////////////////////
 // Type tags
 ///////////////////////////////////////////////////////////////////////////////
@@ -698,7 +660,7 @@ pub(crate) mod tags {
     //! Request API with more complex types (typically those including lifetime parameters), you
     //! will need to write your own tags.
 
-    use crate::marker::PhantomData;
+    use crate::{any::TypeId, marker::PhantomData, ptr::NonNull};
 
     /// This trait is implemented by specific tag types in order to allow
     /// describing a type which can be requested for a given lifetime `'a`.
@@ -710,8 +672,9 @@ pub(crate) mod tags {
         /// The type of values which may be tagged by this tag for the given
         /// lifetime.
         type Reified: 'a;
-
-        fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>);
+    
+        fn consume(sink: &super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>>;
+        fn consume_mut(sink: &mut super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>>;
     }
 
     /// Similar to the [`Type`] trait, but represents a type which may be unsized (i.e., has a
@@ -731,9 +694,18 @@ pub(crate) mod tags {
     impl<'a, T: 'static> Type<'a> for Value<T> {
         type Reified = T;
 
-        fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>) {
-            if sink.0.is_none() {
-                source.consume_value_with::<T>(|val| sink.0 = Some(val));
+        fn consume(sink: &super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>> {
+            if sink.0.is_none() && type_id == TypeId::of::<Self>() {
+                Some(NonNull::from_ref(&sink.0).cast())
+            } else {
+                None
+            }
+        }
+        fn consume_mut(sink: &mut super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>> {
+            if sink.0.is_none() && type_id == TypeId::of::<Self>() {
+                Some(NonNull::from_mut(&mut sink.0).cast())
+            } else {
+                None
             }
         }
     }
@@ -757,9 +729,18 @@ pub(crate) mod tags {
     {
         type Reified = &'a I::Reified;
 
-        fn consume(sink: &mut super::TaggedOption<'a, Self>, source: &mut super::OptValue<'a>) {
-            if sink.0.is_none() {
-                source.consume_ref_with::<I::Reified>(|val| sink.0 = Some(val));
+        fn consume(sink: &super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>> {
+            if sink.0.is_none() && type_id == TypeId::of::<Self>() {
+                Some(NonNull::from_ref(&sink.0).cast())
+            } else {
+                None
+            }
+        }
+        fn consume_mut(sink: &mut super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>> {
+            if sink.0.is_none() && type_id == TypeId::of::<Self>() {
+                Some(NonNull::from_mut(&mut sink.0).cast())
+            } else {
+                None
             }
         }
     }
@@ -780,30 +761,27 @@ impl<'a, I: tags::Type<'a>> Tagged<TaggedOption<'a, I>> {
         // `Request` is repr(transparent).
         unsafe { &mut *(erased as *mut Tagged<dyn Erased<'a>> as *mut Request<'a>) }
     }
-
-    pub(crate) fn as_opt_value(&mut self) -> &mut OptValue<'a> {
-        let erased = self as &mut Tagged<dyn Erased<'a> + 'a>;
-        // SAFETY: transmuting `&mut Tagged<dyn Erased<'a> + 'a>` to `&mut OptValue<'a>` is safe since
-        // `Request` is repr(transparent).
-        unsafe { &mut *(erased as *mut Tagged<dyn Erased<'a>> as *mut OptValue<'a>) }
-    }
 }
 
 /// Represents a type-erased but identifiable object.
 ///
 /// This trait is exclusively implemented by the `TaggedOption` type.
 unsafe trait Erased<'a>: 'a {
-    fn consume(&mut self, value: &mut OptValue<'a>);
-    fn will_consume(&self, type_id: TypeId) -> bool;
+    // if `type_id` is `I: tags::Type<'a>`, then the return value is either
+    // None, or a pointer to an `Option<I::Reified>`, which must be a `None`
+    //
+    // the following 2 functions should be bitwise identical, the are duplicated for miri-safety
+    fn consume(&self, type_id: TypeId) -> Option<NonNull<()>>;
+    fn consume_mut(&mut self, type_id: TypeId) -> Option<NonNull<()>>;
 }
 
 unsafe impl<'a, I: tags::Type<'a>> Erased<'a> for TaggedOption<'a, I> {
-    // This impl is not really used, but leave it here
-    fn consume(&mut self, value: &mut OptValue<'a>) {
-        I::consume(self, value);
+    // This impl is not really used since TaggedOptions are not virtual, but leave it here
+    fn consume(&self, type_id: TypeId) -> Option<NonNull<()>> {
+        I::consume(self, type_id)
     }
-    fn will_consume(&self, type_id: TypeId) -> bool {
-        type_id == TypeId::of::<I>() && self.0.is_none()
+    fn consume_mut(&mut self, type_id: TypeId) -> Option<NonNull<()>> {
+        I::consume_mut(self, type_id)
     }
 }
 
@@ -821,7 +799,8 @@ impl<'a> Tagged<dyn Erased<'a> + 'a> {
     fn would_be_satisfied_by<I>(&self) -> bool
     where I: tags::Type<'a> {
         if self.is_virtual() {
-            self.value.will_consume(TypeId::of::<I>())
+            // consume returns None if the space is not satisfied
+            self.value.consume(TypeId::of::<I>()).is_some()
         } else {
             matches!(self.downcast::<I>(), Some(TaggedOption(None)))
         }
@@ -833,8 +812,14 @@ impl<'a> Tagged<dyn Erased<'a> + 'a> {
         I: tags::Type<'a>,
     {
         if self.is_virtual() {
-            let mut tagged = Tagged { tag_id: TypeId::of::<I>(), value: TaggedOption::<'a, I>(Some(value)) };
-            self.value.consume(tagged.as_opt_value());
+            unsafe {
+                if let Some(res) = self.value.consume_mut(TypeId::of::<I>()) {
+                    let mut ptr: NonNull<Option<I::Reified>> = res.cast();
+                    // cast is fine since consume_mut returns a pointer to an Option<I::Reified>
+                    // could use `ptr::write` here, but this is not expected to be important enough
+                    *ptr.as_mut() = Some(value);
+                }
+            }
         } else {
             if let Some(res @ TaggedOption(None)) = self.downcast_mut::<I>() {
                 res.0 = Some(value);
@@ -849,11 +834,13 @@ impl<'a> Tagged<dyn Erased<'a> + 'a> {
         I: tags::Type<'a>,
     {
         if self.is_virtual() {
-            // This performs 2 virtual calls to `self.value`. However, any way of passing the `FnOnce` would also require a
-            // virtual call, and this is not a very hot path.
-            if self.would_be_satisfied_by::<I>() {
-                let mut tagged = Tagged { tag_id: TypeId::of::<I>(), value: TaggedOption::<'a, I>(Some(fulfil())) };
-                self.value.consume(tagged.as_opt_value());
+            unsafe {
+                if let Some(res) = self.value.consume_mut(TypeId::of::<I>()) {
+                    let mut ptr: NonNull<Option<I::Reified>> = res.cast();
+                    // cast is fine since consume_mut returns a pointer to an Option<I::Reified>
+                    // could use `ptr::write` here, but this is not expected to be important enough
+                    *ptr.as_mut() = Some(fulfil());
+                }
             }
         } else {
             if let Some(res @ TaggedOption(None)) = self.downcast_mut::<I>() {
