@@ -530,22 +530,27 @@ pub trait IntoMultiRequest<'a>: private::IntoMultiRequestInner<'a> + 'static {
 }
 
 mod private {
-    pub(super) trait IntoMultiRequestInner<'a> {
+    #[unstable(feature = "error_generic_member_access", issue = "99301")]
+    #[allow(private_bounds)]
+    pub trait IntoMultiRequestInner<'a> {
         #[unstable(feature = "error_generic_member_access", issue = "99301")]
         type Request: super::Erased<'a> + super::ValueHaver<'a>;
         #[unstable(feature = "error_generic_member_access", issue = "99301")]
         fn get_request() -> Self::Request;
     }
 
-    pub(super) trait ValueHaverInner<'a> {
-        fn consume_with<I>(&mut self, fulfil: impl FnOnce(I::Reified)) -> &mut Self
-        where
-            I: super::tags::Type<'a>;
+    #[unstable(feature = "error_generic_member_access", issue = "99301")]
+    #[allow(private_bounds)]
+    pub trait ValueHaverInner<'a> {
+         fn consume_with<I>(&mut self, fulfil: impl FnOnce(I::Reified)) -> &mut Self
+         where
+             I: super::tags::Type<'a>;
     }
 }
 
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
 impl<'a> IntoMultiRequest<'a> for EmptyMultiRequestBuilder {}
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
 impl<'a> private::IntoMultiRequestInner<'a> for EmptyMultiRequestBuilder {
     type Request = EmptyMultiRequest;
 
@@ -561,6 +566,7 @@ where
     NEXT: IntoMultiRequest<'a>,
 {}
 
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
 impl<'a, I, NEXT> private::IntoMultiRequestInner<'a> for ChainMultiRequestBuilder<I, NEXT>
 where
     I: tags::Type<'a>,
@@ -591,6 +597,7 @@ where
 
 /// AAA
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
+#[allow(private_bounds)]
 pub trait ValueHaver<'a>: private::ValueHaverInner<'a> {
 }
 
@@ -669,7 +676,8 @@ where
 }
 
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
+/// AAA
 pub struct MultiRequestBuilder<INNER: for<'a> IntoMultiRequest<'a>> {
     inner: PhantomData<INNER>,
 }
