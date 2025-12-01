@@ -515,21 +515,38 @@ impl<'a> Debug for Request<'a> {
 
 /// AAA
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct EmptyMultiRequestBuilder;
 
 /// AAA
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct ChainMultiRequestBuilder<I, NEXT>(PhantomData<(I, NEXT)>);
 
-trait IntoMultiRequest<'a>: 'static {
-    type Request: Erased<'a> + ValueHaver<'a>;
-
-    fn get_request() -> Self::Request;
+/// AAA
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
+#[allow(private_bounds)]
+pub trait IntoMultiRequest<'a>: private::IntoMultiRequestInner<'a> + 'static {
 }
 
-impl<'a> IntoMultiRequest<'a> for EmptyMultiRequestBuilder {
+mod private {
+    pub(super) trait IntoMultiRequestInner<'a> {
+        #[unstable(feature = "error_generic_member_access", issue = "99301")]
+        type Request: super::Erased<'a> + super::ValueHaver<'a>;
+        #[unstable(feature = "error_generic_member_access", issue = "99301")]
+        fn get_request() -> Self::Request;
+    }
+
+    pub(super) trait ValueHaverInner<'a> {
+        fn consume_with<I>(&mut self, fulfil: impl FnOnce(I::Reified)) -> &mut Self
+        where
+            I: super::tags::Type<'a>;
+    }
+}
+
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
+impl<'a> IntoMultiRequest<'a> for EmptyMultiRequestBuilder {}
+impl<'a> private::IntoMultiRequestInner<'a> for EmptyMultiRequestBuilder {
     type Request = EmptyMultiRequest;
 
     fn get_request() -> Self::Request {
@@ -537,7 +554,14 @@ impl<'a> IntoMultiRequest<'a> for EmptyMultiRequestBuilder {
     }
 }
 
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
 impl<'a, I, NEXT> IntoMultiRequest<'a> for ChainMultiRequestBuilder<I, NEXT>
+where
+    I: tags::Type<'a>,
+    NEXT: IntoMultiRequest<'a>,
+{}
+
+impl<'a, I, NEXT> private::IntoMultiRequestInner<'a> for ChainMultiRequestBuilder<I, NEXT>
 where
     I: tags::Type<'a>,
     NEXT: IntoMultiRequest<'a>,
@@ -550,10 +574,12 @@ where
 }
 
 /// AAA
-pub struct EmptyMultiRequest;
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
+struct EmptyMultiRequest;
 
 /// AAA
-pub struct MultiRequestChain<'a, I, NEXT>
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
+struct MultiRequestChain<'a, I, NEXT>
 where
     I: tags::Type<'a>,
 {
@@ -565,13 +591,12 @@ where
 
 /// AAA
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
-pub trait ValueHaver<'a> {
-    fn consume_with<I>(&mut self, fulfil: impl FnOnce(I::Reified)) -> &mut Self
-    where
-        I: tags::Type<'a>;
+pub trait ValueHaver<'a>: private::ValueHaverInner<'a> {
 }
 
-impl<'a> ValueHaver<'a> for EmptyMultiRequest {
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
+impl<'a> ValueHaver<'a> for EmptyMultiRequest {}
+impl<'a> private::ValueHaverInner<'a> for EmptyMultiRequest {
     fn consume_with<I>(&mut self, _fulfil: impl FnOnce(I::Reified)) -> &mut Self
     where
         I: tags::Type<'a>,
@@ -580,7 +605,13 @@ impl<'a> ValueHaver<'a> for EmptyMultiRequest {
     }
 }
 
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
 impl<'a, J, NEXT> ValueHaver<'a> for MultiRequestChain<'a, J, NEXT>
+where
+    J: tags::Type<'a>,
+    NEXT: ValueHaver<'a>,
+{}
+impl<'a, J, NEXT> private::ValueHaverInner<'a> for MultiRequestChain<'a, J, NEXT>
 where
     J: tags::Type<'a>,
     NEXT: ValueHaver<'a>,
