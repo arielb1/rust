@@ -57,7 +57,7 @@ fn request_by_type_tag<'a, I>(err: &'a (impl Error + ?Sized)) -> Option<I::Reifi
 where
     I: tags::Type<'a>,
 {
-    let mut tagged = Tagged { tag_id: TypeId::of::<I>(), value: TaggedOption::<'a, I>(None) };
+    let mut tagged = <Tagged<TaggedOption<'a, I>>>::new_concrete();
     err.provide(tagged.as_request());
     tagged.value.0
 }
@@ -515,23 +515,25 @@ impl<'a> Debug for Request<'a> {
 
 
 /// AAA
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
 #[derive(Copy, Clone)]
 pub struct EmptyMultiRequestBuilder;
 
 /// AAA
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
 #[derive(Copy, Clone)]
 pub struct ChainMultiRequestBuilder<I, NEXT>(PhantomData<(I, NEXT)>);
 
 trait IntoMultiRequest<'a>: 'static {
-    type Request: Erased<'a>;
+    type Request: Erased<'a> + ValueHaver<'a>;
 
-    fn request() -> Self::Request;
+    fn get_request() -> Self::Request;
 }
 
 impl<'a> IntoMultiRequest<'a> for EmptyMultiRequestBuilder {
     type Request = EmptyMultiRequest;
 
-    fn request() -> Self::Request {
+    fn get_request() -> Self::Request {
         EmptyMultiRequest
     }
 }
@@ -541,10 +543,10 @@ impl<'a, I, NEXT> IntoMultiRequest<'a> for ChainMultiRequestBuilder<I, NEXT>
 {
     type Request = MultiRequestChain<'a, I, NEXT::Request>;
 
-    fn request() -> Self::Request {
+    fn get_request() -> Self::Request {
         MultiRequestChain {
             cur: None,
-            next: NEXT::request(),
+            next: NEXT::get_request(),
             marker: PhantomData,
         }
     }
@@ -561,7 +563,9 @@ pub struct MultiRequestChain<'a, I, NEXT> where I: tags::Type<'a> {
     marker: PhantomData<*mut &'a ()>,
 }
 
-trait ValueHaver<'a> {
+/// AAA
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
+pub trait ValueHaver<'a> {
     fn consume_with<I>(&mut self, fulfil: impl FnOnce(I::Reified)) -> &mut Self
     where
         I: tags::Type<'a>;
@@ -626,23 +630,39 @@ unsafe impl<'a, I, NEXT> Erased<'a> for MultiRequestChain<'a, I, NEXT>
     }
 }
 
+#[unstable(feature = "error_generic_member_access", issue = "99301")]
+#[derive(Copy, Clone)]
 pub struct MultiRequestBuilder<INNER: for<'a> IntoMultiRequest<'a>> {
     inner: PhantomData<INNER>,
 }
 
 impl MultiRequestBuilder<EmptyMultiRequestBuilder> {
+    /// AAA
+    #[unstable(feature = "error_generic_member_access", issue = "99301")]
     pub fn new() -> Self {
         MultiRequestBuilder { inner: PhantomData }
     }
 }
 
 impl<INNER: for<'a> IntoMultiRequest<'a>> MultiRequestBuilder<INNER> {
-    pub fn with_value<V>(&self) -> MultiRequestBuilder<ChainMultiRequestBuilder<tags::Value<V>, INNER>> {
+    /// AAA
+    #[unstable(feature = "error_generic_member_access", issue = "99301")]
+    pub fn with_value<V>(self) -> MultiRequestBuilder<ChainMultiRequestBuilder<tags::Value<V>, INNER>> {
         MultiRequestBuilder { inner: PhantomData }
     }
 
-    pub fn with_ref<R>(&self) -> MultiRequestBuilder<ChainMultiRequestBuilder<tags::Ref<tags::MaybeSizedValue<R>>, INNER>> {
+    /// AAA
+    #[unstable(feature = "error_generic_member_access", issue = "99301")]
+    pub fn with_ref<R>(self) -> MultiRequestBuilder<ChainMultiRequestBuilder<tags::Ref<tags::MaybeSizedValue<R>>, INNER>> {
         MultiRequestBuilder { inner: PhantomData }
+    }
+
+    /// AAA
+    #[unstable(feature = "error_generic_member_access", issue = "99301")]
+    pub fn request<'a>(self, err: &'a (impl Error + ?Sized)) -> impl ValueHaver<'a> {
+        let mut tagged = Tagged::new_virtual(INNER::get_request());
+        err.provide(tagged.as_request());
+        tagged.value
     }
 }
 
@@ -755,6 +775,18 @@ pub(crate) mod tags {
 pub(crate) struct TaggedOption<'a, I: tags::Type<'a>>(pub Option<I::Reified>);
 
 impl<'a, I: tags::Type<'a>> Tagged<TaggedOption<'a, I>> {
+    fn new_concrete() -> Self {
+        Tagged { tag_id: TypeId::of::<I>(), value: TaggedOption::<'a, I>(None) }
+    }
+}
+
+impl<'a, T: Erased<'a>> Tagged<T> {
+    fn new_virtual(value: T) -> Self {
+        Tagged { tag_id: TypeId::of::<ErasedMarker>(), value }
+    }
+}
+
+impl<'a, T: Erased<'a>> Tagged<T> {
     pub(crate) fn as_request(&mut self) -> &mut Request<'a> {
         let erased = self as &mut Tagged<dyn Erased<'a> + 'a>;
         // SAFETY: transmuting `&mut Tagged<dyn Erased<'a> + 'a>` to `&mut Request<'a>` is safe since

@@ -7,7 +7,7 @@ use crate::fmt::{Debug, Display};
 mod provide;
 
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
-pub use provide::{Request, request_ref, request_value};
+pub use provide::{Request, request_ref, request_value, MultiRequestBuilder, EmptyMultiRequestBuilder, ChainMultiRequestBuilder, ValueHaver};
 
 /// `Error` is a trait representing the basic expectations for error values,
 /// i.e., values of type `E` in [`Result<T, E>`].
