@@ -4,6 +4,7 @@ use crate::any::TypeId;
 use crate::error::Error;
 use crate::fmt::{self, Debug, Formatter};
 use crate::marker::PhantomData;
+use crate::mem::offset_of;
 use crate::ptr::NonNull;
 
 /// Requests a value of type `T` from the given `impl Error`.
@@ -635,6 +636,10 @@ where
     marker: PhantomData<*mut &'a ()>,
 }
 
+// SAFETY: the unsafe code here does not assume that anything within the `MultiRequestChain`
+// is pinned.
+impl<'a, I: tags::Type<'a>, NEXT> crate::marker::Unpin for MultiRequestChain<'a, I, NEXT> {}
+
 /// AAA
 #[unstable(
     feature = "error_generic_member_access_internals",
@@ -754,12 +759,8 @@ where
     T: 'static,
     NEXT: Erased<'a>,
 {
-    fn consume(&self, type_id: TypeId) -> Option<NonNull<()>> {
+    fn consume(&self, type_id: TypeId) -> Option<usize> {
         self.inner.consume(type_id)
-    }
-
-    fn consume_mut(&mut self, type_id: TypeId) -> Option<NonNull<()>> {
-        self.inner.consume_mut(type_id)
     }
 }
 
@@ -785,20 +786,13 @@ where
     T: 'static + ?Sized,
     NEXT: Erased<'a>,
 {
-    fn consume(&self, type_id: TypeId) -> Option<NonNull<()>> {
+    fn consume(&self, type_id: TypeId) -> Option<usize> {
         self.inner.consume(type_id)
-    }
-
-    fn consume_mut(&mut self, type_id: TypeId) -> Option<NonNull<()>> {
-        self.inner.consume_mut(type_id)
     }
 }
 
 unsafe impl<'a> Erased<'a> for EmptyMultiRequest {
-    fn consume(&self, _type_id: TypeId) -> Option<NonNull<()>> {
-        None
-    }
-    fn consume_mut(&mut self, _type_id: TypeId) -> Option<NonNull<()>> {
+    fn consume(&self, _type_id: TypeId) -> Option<usize> {
         None
     }
 }
@@ -808,18 +802,11 @@ where
     I: tags::Type<'a>,
     NEXT: Erased<'a>,
 {
-    fn consume(&self, type_id: TypeId) -> Option<NonNull<()>> {
+    fn consume(&self, type_id: TypeId) -> Option<usize> {
         if type_id == TypeId::of::<I>() && self.cur.is_none() {
-            Some(NonNull::from_ref(&self.cur).cast())
+            Some(offset_of!(Self, cur))
         } else {
-            self.next.consume(type_id)
-        }
-    }
-    fn consume_mut(&mut self, type_id: TypeId) -> Option<NonNull<()>> {
-        if type_id == TypeId::of::<I>() && self.cur.is_none() {
-            Some(NonNull::from_mut(&mut self.cur).cast())
-        } else {
-            self.next.consume_mut(type_id)
+            self.next.consume(type_id).map(|o| offset_of!(Self, next) + o)
         }
     }
 }
@@ -882,6 +869,8 @@ pub(crate) mod tags {
 
     use crate::any::TypeId;
     use crate::marker::PhantomData;
+    use crate::mem::offset_of;
+    use crate::num::NonZeroUsize;
     use crate::ptr::NonNull;
 
     /// This trait is implemented by specific tag types in order to allow
@@ -895,11 +884,7 @@ pub(crate) mod tags {
         /// lifetime.
         type Reified: 'a;
 
-        fn consume(sink: &super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>>;
-        fn consume_mut(
-            sink: &mut super::TaggedOption<'a, Self>,
-            type_id: TypeId,
-        ) -> Option<NonNull<()>>;
+        fn consume(sink: &super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<usize>;
     }
 
     /// Similar to the [`Type`] trait, but represents a type which may be unsized (i.e., has a
@@ -919,19 +904,9 @@ pub(crate) mod tags {
     impl<'a, T: 'static> Type<'a> for Value<T> {
         type Reified = T;
 
-        fn consume(sink: &super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>> {
+        fn consume(sink: &super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<usize> {
             if sink.0.is_none() && type_id == TypeId::of::<Self>() {
-                Some(NonNull::from_ref(&sink.0).cast())
-            } else {
-                None
-            }
-        }
-        fn consume_mut(
-            sink: &mut super::TaggedOption<'a, Self>,
-            type_id: TypeId,
-        ) -> Option<NonNull<()>> {
-            if sink.0.is_none() && type_id == TypeId::of::<Self>() {
-                Some(NonNull::from_mut(&mut sink.0).cast())
+                Some(offset_of!(super::TaggedOption<'a, Self>, 0))
             } else {
                 None
             }
@@ -957,19 +932,9 @@ pub(crate) mod tags {
     {
         type Reified = &'a I::Reified;
 
-        fn consume(sink: &super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<NonNull<()>> {
+        fn consume(sink: &super::TaggedOption<'a, Self>, type_id: TypeId) -> Option<usize> {
             if sink.0.is_none() && type_id == TypeId::of::<Self>() {
-                Some(NonNull::from_ref(&sink.0).cast())
-            } else {
-                None
-            }
-        }
-        fn consume_mut(
-            sink: &mut super::TaggedOption<'a, Self>,
-            type_id: TypeId,
-        ) -> Option<NonNull<()>> {
-            if sink.0.is_none() && type_id == TypeId::of::<Self>() {
-                Some(NonNull::from_mut(&mut sink.0).cast())
+                Some(offset_of!(super::TaggedOption<'a, Self>, 0))
             } else {
                 None
             }
@@ -1009,22 +974,27 @@ impl<'a, T: Erased<'a>> Tagged<T> {
 /// Represents a type-erased but identifiable object.
 ///
 /// This trait is exclusively implemented by the `TaggedOption` type.
-unsafe trait Erased<'a>: 'a {
+///
+/// Why do we need `Unpin`? `Request` contains a (type id, dyn Erased).
+/// The `provide` function takes an `&mut Request`. We want to allow the
+/// loads of the type id to be deduplicated to allow for multi-provide
+/// to be a jump table, which requires `noalias`
+unsafe trait Erased<'a>: 'a + crate::marker::Unpin {
     // if `type_id` is `I: tags::Type<'a>`, then the return value is either
     // None, or a pointer to an `Option<I::Reified>`, which must be a `None`
     //
     // the following 2 functions should be bitwise identical, the are duplicated for miri-safety
-    fn consume(&self, type_id: TypeId) -> Option<NonNull<()>>;
-    fn consume_mut(&mut self, type_id: TypeId) -> Option<NonNull<()>>;
+    fn consume(&self, type_id: TypeId) -> Option<usize>;
 }
+
+// SAFETY: there is no unsafe code that assumes the interior of `&mut TaggedOption`
+// is pinned, so there is no issue with `impl Unpin`.
+impl<'a, I: tags::Type<'a>> crate::marker::Unpin for TaggedOption<'a, I> {}
 
 unsafe impl<'a, I: tags::Type<'a>> Erased<'a> for TaggedOption<'a, I> {
     // This impl is not really used since TaggedOptions are not virtual, but leave it here
-    fn consume(&self, type_id: TypeId) -> Option<NonNull<()>> {
+    fn consume(&self, type_id: TypeId) -> Option<usize> {
         I::consume(self, type_id)
-    }
-    fn consume_mut(&mut self, type_id: TypeId) -> Option<NonNull<()>> {
-        I::consume_mut(self, type_id)
     }
 }
 
@@ -1059,7 +1029,7 @@ impl<'a> Tagged<dyn Erased<'a> + 'a> {
         if self.is_virtual() {
             // SAFETY: consume_mut is defined to return either None or Some(I::Reified)
             unsafe {
-                if let Some(res) = self.value.consume_mut(TypeId::of::<I>()) {
+                if let Some(res) = self.value.consume(TypeId::of::<I>()) {
                     let mut ptr: NonNull<Option<I::Reified>> = res.cast();
                     // cast is fine since consume_mut returns a pointer to an Option<I::Reified>
                     // could use `ptr::write` here, but this is not expected to be important enough
@@ -1081,7 +1051,7 @@ impl<'a> Tagged<dyn Erased<'a> + 'a> {
         if self.is_virtual() {
             // SAFETY: consume_mut is defined to return either None or Some(I::Reified)
             unsafe {
-                if let Some(res) = self.value.consume_mut(TypeId::of::<I>()) {
+                if let Some(res) = self.value.consume(TypeId::of::<I>()) {
                     let mut ptr: NonNull<Option<I::Reified>> = res.cast();
                     // cast is fine since consume_mut returns a pointer to an Option<I::Reified>
                     // could use `ptr::write` here, but this is not expected to be important enough
