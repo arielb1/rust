@@ -531,8 +531,7 @@ pub struct ChainRefMultiRequestBuilder<T: ?Sized, NEXT>(PhantomData<(*const T, N
 /// AAA
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
 #[allow(private_bounds)]
-pub trait IntoMultiRequest<'a>: private::IntoMultiRequestInner<'a> + 'static {
-}
+pub trait IntoMultiRequest<'a>: private::IntoMultiRequestInner<'a> + 'static {}
 
 mod private {
     #[unstable(feature = "error_generic_member_access", issue = "99301")]
@@ -547,9 +546,9 @@ mod private {
     #[unstable(feature = "error_generic_member_access", issue = "99301")]
     #[allow(private_bounds)]
     pub trait ValueHaverInner<'a> {
-         fn consume_with<I>(&mut self, fulfil: impl FnOnce(I::Reified)) -> &mut Self
-         where
-             I: super::tags::Type<'a>;
+        fn consume_with<I>(&mut self, fulfil: impl FnOnce(I::Reified)) -> &mut Self
+        where
+            I: super::tags::Type<'a>;
     }
 }
 
@@ -569,7 +568,8 @@ impl<'a, T, NEXT> IntoMultiRequest<'a> for ChainValMultiRequestBuilder<T, NEXT>
 where
     T: 'static,
     NEXT: IntoMultiRequest<'a>,
-{}
+{
+}
 
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
 impl<'a, T, NEXT> private::IntoMultiRequestInner<'a> for ChainValMultiRequestBuilder<T, NEXT>
@@ -581,18 +581,18 @@ where
 
     fn get_request() -> Self::Request {
         MultiRequestChainVal {
-            inner: MultiRequestChain { cur: None, next: NEXT::get_request(), marker: PhantomData }
+            inner: MultiRequestChain { cur: None, next: NEXT::get_request(), marker: PhantomData },
         }
     }
 }
-
 
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
 impl<'a, T, NEXT> IntoMultiRequest<'a> for ChainRefMultiRequestBuilder<T, NEXT>
 where
     T: ?Sized + 'static,
     NEXT: IntoMultiRequest<'a>,
-{}
+{
+}
 
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
 impl<'a, T, NEXT> private::IntoMultiRequestInner<'a> for ChainRefMultiRequestBuilder<T, NEXT>
@@ -604,21 +604,26 @@ where
 
     fn get_request() -> Self::Request {
         MultiRequestChainRef {
-            inner: MultiRequestChain { cur: None, next: NEXT::get_request(), marker: PhantomData }
+            inner: MultiRequestChain { cur: None, next: NEXT::get_request(), marker: PhantomData },
         }
     }
 }
 
-
 /// AAA
-#[unstable(feature = "error_generic_member_access_internals", reason = "implementation detail which may disappear or be replaced at any time",
-                issue = "none")]
+#[unstable(
+    feature = "error_generic_member_access_internals",
+    reason = "implementation detail which may disappear or be replaced at any time",
+    issue = "none"
+)]
 #[derive(Debug)]
 pub struct EmptyMultiRequest;
 
 /// AAA
-#[unstable(feature = "error_generic_member_access_internals", reason = "implementation detail which may disappear or be replaced at any time",
-                issue = "none")]
+#[unstable(
+    feature = "error_generic_member_access_internals",
+    reason = "implementation detail which may disappear or be replaced at any time",
+    issue = "none"
+)]
 #[derive(Debug)]
 struct MultiRequestChain<'a, I, NEXT>
 where
@@ -631,21 +636,29 @@ where
 }
 
 /// AAA
-#[unstable(feature = "error_generic_member_access_internals", reason = "implementation detail which may disappear or be replaced at any time",
-                issue = "none")]
+#[unstable(
+    feature = "error_generic_member_access_internals",
+    reason = "implementation detail which may disappear or be replaced at any time",
+    issue = "none"
+)]
 #[derive(Debug)]
 pub struct MultiRequestChainVal<'a, T, NEXT>
-where T: 'static
+where
+    T: 'static,
 {
     inner: MultiRequestChain<'a, tags::Value<T>, NEXT>,
 }
 
 /// AAA
-#[unstable(feature = "error_generic_member_access_internals", reason = "implementation detail which may disappear or be replaced at any time",
-                issue = "none")]
+#[unstable(
+    feature = "error_generic_member_access_internals",
+    reason = "implementation detail which may disappear or be replaced at any time",
+    issue = "none"
+)]
 #[derive(Debug)]
 pub struct MultiRequestChainRef<'a, T, NEXT>
-where T: 'static + ?Sized
+where
+    T: 'static + ?Sized,
 {
     inner: MultiRequestChain<'a, tags::Ref<tags::MaybeSizedValue<T>>, NEXT>,
 }
@@ -656,27 +669,27 @@ where T: 'static + ?Sized
 pub trait ValueHaver<'a> {
     /// Consume a reference
     fn consume_ref<R>(&mut self, fulfil: impl FnOnce(&'a R)) -> &mut Self
-         where
-             R: ?Sized + 'static;
+    where
+        R: ?Sized + 'static;
 
     /// Consume a value
     fn consume_value<V>(&mut self, fulfil: impl FnOnce(V)) -> &mut Self
-         where
-             V: 'static;
+    where
+        V: 'static;
 }
 
 #[unstable(feature = "error_generic_member_access", issue = "99301")]
 impl<'a, T: private::ValueHaverInner<'a>> ValueHaver<'a> for T {
     fn consume_ref<R>(&mut self, fulfil: impl FnOnce(&'a R)) -> &mut Self
-         where
-             R: ?Sized + 'static
+    where
+        R: ?Sized + 'static,
     {
         self.consume_with::<tags::Ref<tags::MaybeSizedValue<R>>>(fulfil)
     }
 
     fn consume_value<V>(&mut self, fulfil: impl FnOnce(V)) -> &mut Self
-         where
-             V: 'static
+    where
+        V: 'static,
     {
         self.consume_with::<tags::Value<V>>(fulfil)
     }
@@ -839,8 +852,7 @@ impl<INNER: for<'a> IntoMultiRequest<'a>> MultiRequestBuilder<INNER> {
     #[unstable(feature = "error_generic_member_access", issue = "99301")]
     pub fn with_ref<R: 'static + ?Sized>(
         self,
-    ) -> MultiRequestBuilder<ChainRefMultiRequestBuilder<R, INNER>>
-    {
+    ) -> MultiRequestBuilder<ChainRefMultiRequestBuilder<R, INNER>> {
         MultiRequestBuilder { inner: PhantomData }
     }
 
