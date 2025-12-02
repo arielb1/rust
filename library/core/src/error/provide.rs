@@ -1028,9 +1028,8 @@ impl<'a> Tagged<dyn Erased<'a> + 'a> {
             // SAFETY: consume_mut is defined to return either None or Some(I::Reified)
             unsafe {
                 if let Some(res) = self.value.consume(TypeId::of::<I>()) {
-                    let ptr: NonNull<u8> = NonNull::from_mut(&mut self.value).cast();
-                    crate::intrinsics::assume((res as isize) >= 0);
-                    let mut ptr: NonNull<Option<I::Reified>> = ptr.offset(res as isize).cast();
+                    let mut ptr: NonNull<Option<I::Reified>> =
+                        NonNull::from_mut(&mut self.value).byte_add(res).cast();
                     // cast is fine since consume_mut returns a pointer to an Option<I::Reified>
                     // could use `ptr::write` here, but this is not expected to be important enough
                     *ptr.as_mut() = Some(value);
@@ -1052,9 +1051,8 @@ impl<'a> Tagged<dyn Erased<'a> + 'a> {
             // SAFETY: consume_mut is defined to return either None or Some(I::Reified)
             unsafe {
                 if let Some(res) = self.value.consume(TypeId::of::<I>()) {
-                    let ptr: NonNull<u8> = NonNull::from_mut(&mut self.value).cast();
-                    crate::intrinsics::assume((res as isize) >= 0);
-                    let mut ptr: NonNull<Option<I::Reified>> = ptr.offset(res as isize).cast();
+                    let mut ptr: NonNull<Option<I::Reified>> =
+                        NonNull::from_mut(&mut self.value).byte_add(res).cast();
                     // cast is fine since consume_mut returns a pointer to an Option<I::Reified>
                     // could use `ptr::write` here, but this is not expected to be important enough
                     *ptr.as_mut() = Some(fulfil());
